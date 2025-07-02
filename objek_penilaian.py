@@ -573,7 +573,7 @@ What would you like to know about your projects?"""
                     in_sql_block = False
                     
                     for line in lines:
-                        if '```sql' in line.lower():
+                        if '```sql' in line.lower() or '```' in line and 'SELECT' in line.upper():
                             in_sql_block = True
                             continue
                         elif '```' in line and in_sql_block:
@@ -596,17 +596,37 @@ What would you like to know about your projects?"""
                             # Execute the query
                             result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
                             
-                            if result_df is not None:
-                                # Show the results
-                                st.markdown("**Query Results:**")
-                                st.dataframe(result_df, use_container_width=True)
+                            if result_df is not None and len(result_df) > 0:
+                                # Show query results in expandable section
+                                with st.expander("📊 Query Results", expanded=False):
+                                    st.code(sql_query, language="sql")
+                                    st.dataframe(result_df, use_container_width=True)
                                 
-                                # Add query result context to response
-                                result_summary = f"\n\nQuery executed successfully. Found {len(result_df)} records."
-                                if len(result_df) > 0:
-                                    result_summary += f"\n\nKey findings:\n{result_df.head().to_string()}"
+                                # Create a follow-up response with the actual results
+                                follow_up_prompt = f"""
+Based on the query results, provide a clear and conversational answer to the user's question.
+
+Query executed: {sql_query}
+Results: {result_df.to_dict('records')}
+
+Please give a natural, helpful response that directly answers what the user asked, without showing technical details or raw data. Focus on the key insights and numbers that matter to the user.
+"""
                                 
-                                response.content += result_summary
+                                # Get AI interpretation of results
+                                interpretation_messages = [
+                                    SystemMessage(content="You are a helpful assistant that interprets database query results for business users. Provide clear, conversational answers without technical jargon."),
+                                    HumanMessage(content=follow_up_prompt)
+                                ]
+                                
+                                interpretation_response = st.session_state.ai_chat.llm.invoke(interpretation_messages)
+                                
+                                # Display the interpreted response
+                                st.markdown("---")
+                                st.markdown(interpretation_response.content)
+                                
+                                # Update the response content to include interpretation
+                                response.content = interpretation_response.content
+                                
                             else:
                                 st.error(f"Query failed: {query_msg}")
                                 response.content += f"\n\nNote: Query execution failed - {query_msg}"
