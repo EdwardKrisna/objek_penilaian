@@ -152,7 +152,7 @@ class RHRAIChat:
     
     def __init__(self, api_key: str, table_name: str):
         self.llm = ChatOpenAI(
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
             api_key=api_key,
             temperature=0.3,
             max_tokens=2000
@@ -199,14 +199,20 @@ QUERY INSTRUCTIONS:
 1. COUNTING/EXISTENCE QUERIES
 For questions like: "Do I have projects in Jakarta?", "How many projects from this client?"
 Template:
-SELECT id, COUNT(*) as total_count
+SELECT COUNT(*) as total_count
 FROM {self.table_name}
 WHERE [condition] AND [column] IS NOT NULL;
+
+Alternative for existence check:
+SELECT EXISTS(
+    SELECT 1 FROM {self.table_name} 
+    WHERE [condition] AND [column] IS NOT NULL
+) as has_projects;
 
 2. SUMMARY/GROUPING QUERIES
 For questions like: "Top clients", "Projects by region", "Most common property types"
 Template:
-SELECT id, [grouping_column], COUNT(*) as count
+SELECT [grouping_column], COUNT(*) as count
 FROM {self.table_name}
 WHERE [column] IS NOT NULL
 GROUP BY [grouping_column]
@@ -225,11 +231,41 @@ LIMIT [small_number];
 4. GEOGRAPHIC QUERIES
 For questions like: "Projects in specific locations", "Regional distribution"
 Template:
-SELECT id, wadmpr, wadmkk, wadmkc, COUNT(*) as count
+SELECT wadmpr, wadmkk, wadmkc, COUNT(*) as count
 FROM {self.table_name}
 WHERE (wadmpr ILIKE '%[location]%' OR wadmkk ILIKE '%[location]%' OR wadmkc ILIKE '%[location]%')
 AND wadmpr IS NOT NULL
 GROUP BY wadmpr, wadmkk, wadmkc
+ORDER BY count DESC;
+
+5. CLIENT ANALYSIS QUERIES
+For questions like: "Client performance", "Contract analysis"
+Template:
+SELECT pemberi_tugas, COUNT(*) as total_contracts, 
+       COUNT(DISTINCT no_kontrak) as unique_contracts
+FROM {self.table_name}
+WHERE pemberi_tugas IS NOT NULL
+GROUP BY pemberi_tugas
+ORDER BY total_contracts DESC
+LIMIT 10;
+
+6. PROPERTY TYPE QUERIES
+For questions like: "Property type distribution", "Object analysis"
+Template:
+SELECT jenis_objek, nama_objek, COUNT(*) as count
+FROM {self.table_name}
+WHERE jenis_objek IS NOT NULL AND nama_objek IS NOT NULL
+GROUP BY jenis_objek, nama_objek
+ORDER BY count DESC
+LIMIT 15;
+
+7. STATUS/WORKFLOW QUERIES
+For questions like: "Project status", "Completion rate", "Branch performance"
+Template:
+SELECT status, cabang, COUNT(*) as count
+FROM {self.table_name}
+WHERE status IS NOT NULL AND cabang IS NOT NULL
+GROUP BY status, cabang
 ORDER BY count DESC;
 
 CRITICAL RULES:
