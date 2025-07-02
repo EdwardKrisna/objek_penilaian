@@ -500,10 +500,9 @@ def render_ai_chat():
 Anda dapat bertanya hal-hal seperti:
 - Berapa banyak proyek yang kita miliki di Jakarta?
 - Siapa saja 5 klien terbesar kita?
-- Tampilkan beberapa penilaian tanah terbaru.
 - Jenis properti apa yang paling sering kita nilai?
 
-What would you like to know about your projects?"""
+Apa yang ingin anda ketahui? Tanyakan saja pada saya!"""
         
         st.session_state.chat_messages.append({
             "role": "assistant",
