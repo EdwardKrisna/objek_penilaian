@@ -89,8 +89,29 @@ class DatabaseConnection:
             if not self.connection_status:
                 return None, "No database connection established"
             
-            df = pd.read_sql(query, self.engine)
-            return df, "Query executed successfully"
+            # Use connection context manager to avoid SQLAlchemy issues
+            with self.engine.connect() as conn:
+                result = conn.execute(text(query))
+                
+                # Convert result to list of dictionaries first
+                rows = []
+                columns = list(result.keys())
+                
+                for row in result:
+                    # Convert each row to a regular dict
+                    row_dict = {}
+                    for i, value in enumerate(row):
+                        row_dict[columns[i]] = value
+                    rows.append(row_dict)
+                
+                # Create DataFrame from the cleaned data
+                if rows:
+                    df = pd.DataFrame(rows)
+                else:
+                    # Create empty DataFrame with proper columns
+                    df = pd.DataFrame(columns=columns)
+                
+                return df, "Query executed successfully"
         
         except Exception as e:
             return None, f"Query execution failed: {str(e)}"
@@ -119,6 +140,7 @@ class DatabaseConnection:
             
             with self.engine.connect() as conn:
                 result = conn.execute(text(base_query))
+                # Convert to list properly
                 values = [row[0] for row in result.fetchall()]
                 return values
         except Exception as e:
