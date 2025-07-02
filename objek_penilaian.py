@@ -637,8 +637,8 @@ Please give a natural, helpful response that directly answers what the user aske
                             st.error(f"Error executing query: {str(e)}")
                             response.content += f"\n\nNote: Error executing query - {str(e)}"
                 
-                # Display the response
-                st.markdown(response.content)
+                # # Display the response
+                # st.markdown(response.content)
                 
                 # Add assistant response to history
                 st.session_state.chat_messages.append({
