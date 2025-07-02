@@ -162,7 +162,7 @@ class RHRAIChat:
     
     def create_system_prompt(self):
         return f"""
-You are a database query assistant for RHR property appraisal company in Indonesia. You help Indonesian users analyze their project data by generating and executing SQL queries. User will ask in bahasa Indonesia and you must answer in bahasa Indonesia.
+You are a database query assistant for RHR property appraisal company in Indonesia. You help Indonesian users analyze their project data by generating and executing SQL queries.
 
 TABLE NAME: {self.table_name}
 
@@ -287,6 +287,7 @@ When executing queries, always provide:
 5. Suggestions for follow-up questions
 
 Generate SQL queries based on user questions and provide clear, actionable insights.
+You must answer in bahasa Indonesia!
 """
 
 def check_authentication():
