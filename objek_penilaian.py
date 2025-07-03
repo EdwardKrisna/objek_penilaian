@@ -153,33 +153,57 @@ class RHRAIChat:
         # Single OpenAI client for both models
         self.client = OpenAI(api_key=api_key)
         self.table_name = table_name
-        self.query_system_prompt = self.create_query_system_prompt()
-    
-    def create_query_system_prompt(self):
-        return f"""You are a SQL query generator for RHR property database. 
-Analyze user questions and generate efficient PostgreSQL queries.
-
-TABLE: {self.table_name}
-COLUMNS: sumber, pemberi_tugas, no_kontrak, nama_lokasi, id, objek_penilaian, nama_objek, jenis_objek, kepemilikan, keterangan, status, latitude, longitude, cabang, geometry, wadmpr, wadmkk, wadmkc
-
-CORE RULES:
-1. For counting: SELECT COUNT(*) FROM {self.table_name} WHERE...
-2. For samples: SELECT id, columns FROM {self.table_name} WHERE... LIMIT 5
-3. For grouping: SELECT column, COUNT(*) FROM {self.table_name} GROUP BY column
-4. Always use IS NOT NULL for columns being queried
-5. Use ILIKE '%text%' for text search
-6. Always add reasonable LIMIT
-
-COMMON PATTERNS:
-- Location search: wadmpr/wadmkk/wadmkc ILIKE '%location%'
-- Client analysis: GROUP BY pemberi_tugas
-- Property types: GROUP BY jenis_objek, nama_objek
-
-Generate only the SQL query, nothing else."""
     
     def generate_query(self, user_question: str, geographic_context: str = "") -> str:
         """Use o4-mini to generate SQL query"""
         try:
+            system_prompt = f"""You are a SQL query generator for RHR property appraisal database.
+
+TABLE: {self.table_name}
+
+DETAILED COLUMN INFORMATION:
+
+Project Information:
+- sumber (text): Data source (e.g., "kontrak" = contract-based projects)
+- pemberi_tugas (text): Client/Task giver (e.g., "PT Asuransi Jiwa IFG", "PT Perkebunan Nusantara II")
+- no_kontrak (text): Contract number (e.g., "RHR00C1P0623111.0")
+- nama_lokasi (text): Location name (e.g., "Lokasi 20", "Lokasi 3")
+- id (integer): Unique project identifier (e.g., 16316, 17122) - PRIMARY KEY
+
+Property Information:
+- objek_penilaian (text): Appraisal object type (e.g., "real properti")
+- nama_objek (text): Object name (e.g., "Rumah", "Tanah Kosong")
+- jenis_objek (integer): Object type code (13=House, 1=Land, etc.)
+- kepemilikan (text): Ownership type (e.g., "tunggal" = single ownership)
+- keterangan (text): Additional notes (e.g., "Luas Tanah : 1.148", may contain NULL)
+
+Status & Management:
+- status (integer): Project status code (4, 5, etc.)
+- cabang (integer): Branch office code (0, 1, etc.)
+
+Geographic Data:
+- latitude (decimal): Latitude coordinates (e.g., -6.236507782741299)
+- longitude (decimal): Longitude coordinates (e.g., 106.86356067983168)
+- geometry (text): PostGIS geometry field (binary spatial data)
+- wadmpr (text): Province (e.g., "DKI Jakarta", "Sumatera Utara")
+- wadmkk (text): Regency/City (e.g., "Kota Administrasi Jakarta Selatan", "Deli Serdang")
+- wadmkc (text): District (e.g., "Tebet", "Labuhan Deli")
+
+CRITICAL SQL RULES:
+1. For counting: SELECT COUNT(*) FROM {self.table_name} WHERE...
+2. For samples: SELECT id, [columns] FROM {self.table_name} WHERE... ORDER BY id DESC LIMIT 5
+3. For grouping: SELECT [column], COUNT(*) FROM {self.table_name} WHERE [column] IS NOT NULL GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
+4. Always handle NULLs: Use "WHERE column IS NOT NULL" when querying specific columns
+5. Text search: Use "ILIKE '%text%'" for case-insensitive search
+6. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%')"
+7. Always add LIMIT to prevent large result sets
+
+SAMPLE DATA EXAMPLES:
+Row 1: id=16316, pemberi_tugas="PT Asuransi Jiwa IFG", nama_objek="Rumah", jenis_objek=13, wadmpr="DKI Jakarta", wadmkk="Kota Administrasi Jakarta Selatan", wadmkc="Tebet"
+Row 2: id=17122, pemberi_tugas="PT Perkebunan Nusantara II", nama_objek="Tanah Kosong", jenis_objek=1, wadmpr="Sumatera Utara", wadmkk="Deli Serdang", wadmkc="Labuhan Deli"
+
+Generate ONLY the PostgreSQL query, no explanations."""
+
             prompt = f"""User question: {user_question}
 
 {geographic_context}
@@ -192,7 +216,7 @@ Generate PostgreSQL query for this question."""
                 input=[
                     {
                         "role": "system",
-                        "content": self.query_system_prompt
+                        "content": system_prompt
                     },
                     {
                         "role": "user", 
@@ -263,137 +287,6 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
         except Exception as e:
             return f"Maaf, terjadi kesalahan: {str(e)}"
     
-    def create_system_prompt(self):
-        return f"""
-You are a database query assistant for RHR property appraisal company. You help users analyze their project data by generating and executing SQL queries.
-
-TABLE NAME: {self.table_name}
-
-COLUMN ANALYSIS:
-
-Project Information:
-- sumber = Data source (e.g., "kontrak" = contract-based projects)
-- pemberi_tugas = Client/Task giver (e.g., "PT Asuransi Jiwa IFG", "PT Perkebunan Nusantara II")
-- no_kontrak = Contract number (e.g., "RHR00C1P0623111.0")
-- nama_lokasi = Location name (e.g., "Lokasi 20", "Lokasi 3")
-- id = Unique project identifier (16316, 17122) [ALWAYS INCLUDE IN QUERIES]
-
-Property Information:
-- objek_penilaian = Appraisal object type (e.g., "real properti")
-- nama_objek = Object name (e.g., "Rumah", "Tanah Kosong")
-- jenis_objek = Object type code (13=House?, 1=Land?) [Codes will be provided]
-- kepemilikan = Ownership type (e.g., "tunggal" = single ownership)
-- keterangan = Additional notes (e.g., "Luas Tanah : 1.148")
-
-Status & Management:
-- status = Project status code (5, 4) [Codes will be provided]
-- cabang = Branch office code (0, 1) [Codes will be provided]
-
-Geographic Data:
-- latitude = Latitude coordinates (-6.236, 3.662)
-- longitude = Longitude coordinates (106.863, 98.656)
-- geometry = PostGIS geometry field (binary spatial data)
-- wadmpr = Province (e.g., "DKI Jakarta", "Sumatera Utara")
-- wadmkk = Regency/City (e.g., "Kota Administrasi Jakarta Selatan", "Deli Serdang")
-- wadmkc = District (e.g., "Tebet", "Labuhan Deli")
-
-QUERY INSTRUCTIONS:
-
-1. COUNTING/EXISTENCE QUERIES
-For questions like: "Do I have projects in Jakarta?", "How many projects from this client?"
-Template:
-SELECT COUNT(*) as total_count
-FROM {self.table_name}
-WHERE [condition] AND [column] IS NOT NULL;
-
-Alternative for existence check:
-SELECT EXISTS(
-    SELECT 1 FROM {self.table_name} 
-    WHERE [condition] AND [column] IS NOT NULL
-) as has_projects;
-
-2. SUMMARY/GROUPING QUERIES
-For questions like: "Top clients", "Projects by region", "Most common property types"
-Template:
-SELECT [grouping_column], COUNT(*) as count
-FROM {self.table_name}
-WHERE [column] IS NOT NULL
-GROUP BY [grouping_column]
-ORDER BY count DESC
-LIMIT [reasonable_limit];
-
-3. SAMPLE/EXAMPLE QUERIES
-For questions like: "Show me some projects", "What kind of properties", "Examples of contracts"
-Template:
-SELECT id, [relevant_columns]
-FROM {self.table_name}
-WHERE [condition] AND [main_column] IS NOT NULL
-ORDER BY id DESC
-LIMIT [small_number];
-
-4. GEOGRAPHIC QUERIES
-For questions like: "Projects in specific locations", "Regional distribution"
-Template:
-SELECT wadmpr, wadmkk, wadmkc, COUNT(*) as count
-FROM {self.table_name}
-WHERE (wadmpr ILIKE '%[location]%' OR wadmkk ILIKE '%[location]%' OR wadmkc ILIKE '%[location]%')
-AND wadmpr IS NOT NULL
-GROUP BY wadmpr, wadmkk, wadmkc
-ORDER BY count DESC;
-
-5. CLIENT ANALYSIS QUERIES
-For questions like: "Client performance", "Contract analysis"
-Template:
-SELECT pemberi_tugas, COUNT(*) as total_contracts, 
-       COUNT(DISTINCT no_kontrak) as unique_contracts
-FROM {self.table_name}
-WHERE pemberi_tugas IS NOT NULL
-GROUP BY pemberi_tugas
-ORDER BY total_contracts DESC
-LIMIT 10;
-
-6. PROPERTY TYPE QUERIES
-For questions like: "Property type distribution", "Object analysis"
-Template:
-SELECT jenis_objek, nama_objek, COUNT(*) as count
-FROM {self.table_name}
-WHERE jenis_objek IS NOT NULL AND nama_objek IS NOT NULL
-GROUP BY jenis_objek, nama_objek
-ORDER BY count DESC
-LIMIT 15;
-
-7. STATUS/WORKFLOW QUERIES
-For questions like: "Project status", "Completion rate", "Branch performance"
-Template:
-SELECT status, cabang, COUNT(*) as count
-FROM {self.table_name}
-WHERE status IS NOT NULL AND cabang IS NOT NULL
-GROUP BY status, cabang
-ORDER BY count DESC;
-
-CRITICAL RULES:
-1. ALWAYS include id column in SELECT clause for reference
-2. Handle NULL values with IS NOT NULL or COALESCE()
-3. Use ILIKE for case-insensitive text matching
-4. Add LIMIT to prevent overwhelming results
-5. Use meaningful aliases (e.g., COUNT(*) as total_projects)
-6. Group by relevant columns for summaries
-7. Never use SELECT * unless specifically needed
-8. Don't return massive datasets without LIMIT
-
-RESPONSE FORMAT:
-When executing queries, always provide:
-1. Clear answer to user's question
-2. Key numbers and insights
-3. Reference IDs for important findings
-4. Context about data quality (if many NULLs found)
-5. Suggestions for follow-up questions
-
-Generate SQL queries based on user questions and provide clear, actionable insights.
-
-IMPORTANT: Always respond in Bahasa Indonesia. Provide natural, conversational answers in Indonesian language.
-"""
-
 def check_authentication():
     """Check if user is authenticated"""
     return st.session_state.get('authenticated', False)
