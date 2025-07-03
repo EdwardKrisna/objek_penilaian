@@ -194,9 +194,9 @@ CRITICAL SQL RULES:
 1. For counting: SELECT COUNT(*) FROM {self.table_name} WHERE...
 2. For samples: SELECT id, [columns] FROM {self.table_name} WHERE... ORDER BY id DESC LIMIT 5
 3. For grouping with lookups: 
-   - Object types: SELECT mj.name as object_type, COUNT(*) FROM {self.table_name} t LEFT JOIN master_jenis_objek mj ON t.jenis_objek::integer = mj.id GROUP BY mj.name ORDER BY COUNT(*) DESC LIMIT 10
-   - Status: SELECT ms.name as status_name, COUNT(*) FROM {self.table_name} t LEFT JOIN master_status_objek ms ON t.status::integer = ms.id GROUP BY ms.name ORDER BY COUNT(*) DESC LIMIT 10  
-   - Branch: SELECT mc.name as branch_name, COUNT(*) FROM {self.table_name} t LEFT JOIN master_cabang mc ON t.cabang::integer = mc.id GROUP BY mc.name ORDER BY COUNT(*) DESC LIMIT 10
+   - Object types: SELECT mj.name as object_type, COUNT(*) FROM {self.table_name} t LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id GROUP BY mj.name ORDER BY COUNT(*) DESC LIMIT 10
+   - Status: SELECT ms.name as status_name, COUNT(*) FROM {self.table_name} t LEFT JOIN master_status_objek ms ON t.status = ms.id GROUP BY ms.name ORDER BY COUNT(*) DESC LIMIT 10  
+   - Branch: SELECT mc.name as branch_name, COUNT(*) FROM {self.table_name} t LEFT JOIN master_cabang mc ON t.cabang = mc.id GROUP BY mc.name ORDER BY COUNT(*) DESC LIMIT 10
    - Other columns: SELECT [column], COUNT(*) FROM {self.table_name} t WHERE [column] IS NOT NULL GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
 4. Always use readable names: mj.name (not jenis_objek), ms.name (not status), mc.name (not cabang)5. Always handle NULLs: Use "WHERE column IS NOT NULL" when querying specific columns
 6. Text search: Use "ILIKE '%text%'" for case-insensitive search
@@ -205,10 +205,10 @@ CRITICAL SQL RULES:
 9. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns (nama_objek, pemberi_tugas, wadmpr, wadmkk)
 10. For readable names: Always JOIN with lookup tables to get names instead of codes
 11. Use aliases: mj (master_jenis_objek), ms (master_status_objek), mc (master_cabang)
-12. Standard JOINs with type casting:
-   - LEFT JOIN master_jenis_objek mj ON t.jenis_objek::integer = mj.id
-   - LEFT JOIN master_status_objek ms ON t.status::integer = ms.id  
-   - LEFT JOIN master_cabang mc ON t.cabang::integer = mc.id
+12. Standard JOINs:
+   - LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id
+   - LEFT JOIN master_status_objek ms ON t.status = ms.id  
+   - LEFT JOIN master_cabang mc ON t.cabang = mc.id
 13. Select readable columns: mj.name as jenis_objek_name, ms.name as status_name, mc.name as cabang_name
 
 SAMPLE DATA EXAMPLES:
@@ -230,21 +230,21 @@ SQL JOIN EXAMPLES:
          ms.name as status_name, 
          mc.name as cabang_name
   FROM {self.table_name} t 
-  LEFT JOIN master_jenis_objek mj ON t.jenis_objek::integer = mj.id
-  LEFT JOIN master_status_objek ms ON t.status::integer = ms.id
-  LEFT JOIN master_cabang mc ON t.cabang::integer = mc.id
+  LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id
+  LEFT JOIN master_status_objek ms ON t.status = ms.id
+  LEFT JOIN master_cabang mc ON t.cabang = mc.id
 
 - Grouping by status:
   SELECT ms.name as status_name, COUNT(*) as count
   FROM {self.table_name} t 
-  LEFT JOIN master_status_objek ms ON t.status::integer = ms.id
+  LEFT JOIN master_status_objek ms ON t.status = ms.id
   WHERE ms.name IS NOT NULL
   GROUP BY ms.name ORDER BY count DESC
 
 - Branch performance:
   SELECT mc.name as branch_name, COUNT(*) as total_projects
   FROM {self.table_name} t 
-  LEFT JOIN master_cabang mc ON t.cabang::integer = mc.id
+  LEFT JOIN master_cabang mc ON t.cabang = mc.id
   WHERE mc.name IS NOT NULL
   GROUP BY mc.name ORDER BY total_projects DESC
 
