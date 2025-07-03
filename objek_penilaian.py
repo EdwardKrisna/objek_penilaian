@@ -238,7 +238,6 @@ Otherwise, generate PostgreSQL query for this question."""
 
             response = self.client.responses.create(
                 model="o4-mini",
-                stream=True,
                 reasoning={"effort": "low"},
                 input=[
                     {
@@ -287,15 +286,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                 temperature=0.3
             )
             
-            full_response = ""
-            response_container = st.empty()
-            for chunk in response:
-                if chunk.choices[0].delta.content:
-                    full_response += chunk.choices[0].delta.content
-                    response_container.markdown(full_response + "▌")
-            response_container.markdown(full_response)
-            return full_response
-            # return response.choices[0].message.content
+            return response.choices[0].message.content
             
         except Exception as e:
             return f"Maaf, terjadi kesalahan dalam memproses hasil: {str(e)}"
@@ -399,15 +390,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                 temperature=0.3
             )
             
-            # Add streaming logic
-            full_response = ""
-            response_container = st.empty()
-            for chunk in response:
-                if chunk.choices[0].delta.content:
-                    full_response += chunk.choices[0].delta.content
-                    response_container.markdown(full_response + "▌")
-            response_container.markdown(full_response)
-            return full_response
+            return response.choices[0].message.content
             
         except Exception as e:
             return f"Maaf, terjadi kesalahan: {str(e)}"
@@ -662,7 +645,6 @@ What would you like to know about your projects?"""
         # Generate AI response
         with st.chat_message("assistant"):
             try:
-                final_response = ""
                 # Build geographic context
                 geo_context = ""
                 if hasattr(st.session_state, 'geographic_filters') and any(st.session_state.geographic_filters.values()):
