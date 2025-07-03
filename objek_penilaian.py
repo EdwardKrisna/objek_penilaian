@@ -179,8 +179,8 @@ Property Information:
 - keterangan (text): Additional notes (e.g., "Luas Tanah : 1.148", may contain NULL)
 
 Status & Management:
-- status (integer): Project status code (4, 5, etc.)
-- cabang (integer): Branch office code (0, 1, etc.)
+- status (integer): Project status code that joins with master_status_objek table for readable names  
+- cabang (integer): Branch office code that joins with master_cabang table for readable names
 
 Geographic Data:
 - latitude (decimal): Latitude coordinates (e.g., -6.236507782741299)
@@ -193,16 +193,23 @@ Geographic Data:
 CRITICAL SQL RULES:
 1. For counting: SELECT COUNT(*) FROM {self.table_name} WHERE...
 2. For samples: SELECT id, [columns] FROM {self.table_name} WHERE... ORDER BY id DESC LIMIT 5
-3. For grouping: SELECT [column], COUNT(*) FROM {self.table_name} t LEFT JOIN master_jenis_objek m ON t.jenis_objek = m.id WHERE [column] IS NOT NULL GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
-4. For object type analysis: Always use m.name instead of t.jenis_objek for readable results
-5. Always handle NULLs: Use "WHERE column IS NOT NULL" when querying specific columns
+3. For grouping with lookups: 
+   - Object types: SELECT mj.name as object_type, COUNT(*) FROM {self.table_name} t LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id GROUP BY mj.name ORDER BY COUNT(*) DESC LIMIT 10
+   - Status: SELECT ms.name as status_name, COUNT(*) FROM {self.table_name} t LEFT JOIN master_status_objek ms ON t.status = ms.id GROUP BY ms.name ORDER BY COUNT(*) DESC LIMIT 10  
+   - Branch: SELECT mc.name as branch_name, COUNT(*) FROM {self.table_name} t LEFT JOIN master_cabang mc ON t.cabang = mc.id GROUP BY mc.name ORDER BY COUNT(*) DESC LIMIT 10
+   - Other columns: SELECT [column], COUNT(*) FROM {self.table_name} t WHERE [column] IS NOT NULL GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
+4. Always use readable names: mj.name (not jenis_objek), ms.name (not status), mc.name (not cabang)5. Always handle NULLs: Use "WHERE column IS NOT NULL" when querying specific columns
 6. Text search: Use "ILIKE '%text%'" for case-insensitive search
 7. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%')"
 8. Always add LIMIT to prevent large result sets
 9. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns (nama_objek, pemberi_tugas, wadmpr, wadmkk)
-10. For readable object types: Always JOIN with master_jenis_objek to get names instead of codes
-11. Use LEFT JOIN master_jenis_objek m ON t.jenis_objek = m.id
-12. Select m.name as jenis_objek_name for readable output
+10. For readable names: Always JOIN with lookup tables to get names instead of codes
+11. Use aliases: mj (master_jenis_objek), ms (master_status_objek), mc (master_cabang)
+12. Standard JOINs:
+   - LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id
+   - LEFT JOIN master_status_objek ms ON t.status = ms.id  
+   - LEFT JOIN master_cabang mc ON t.cabang = mc.id
+13. Select readable columns: mj.name as jenis_objek_name, ms.name as status_name, mc.name as cabang_name
 
 SAMPLE DATA EXAMPLES:
 Row 1: id=16316, pemberi_tugas="PT Asuransi Jiwa IFG", nama_objek="Rumah", jenis_objek=13, wadmpr="DKI Jakarta", wadmkk="Kota Administrasi Jakarta Selatan", wadmkc="Tebet"
@@ -211,19 +218,35 @@ Row 2: id=17122, pemberi_tugas="PT Perkebunan Nusantara II", nama_objek="Tanah K
 LOOKUP TABLES:
 - master_jenis_objek: Contains id and name for jenis_objek codes
   Join: {self.table_name}.jenis_objek = master_jenis_objek.id
+- master_status_objek: Contains id and name for status codes
+  Join: {self.table_name}.status = master_status_objek.id  
+- master_cabang: Contains id and name for cabang codes
+  Join: {self.table_name}.cabang = master_cabang.id
 
 SQL JOIN EXAMPLES:
-- Simple query with object type names: 
-  SELECT t.id, t.nama_objek, m.name as jenis_objek_name 
+- Query with all readable names:
+  SELECT t.id, t.nama_objek, t.pemberi_tugas,
+         mj.name as jenis_objek_name,
+         ms.name as status_name, 
+         mc.name as cabang_name
   FROM {self.table_name} t 
-  LEFT JOIN master_jenis_objek m ON t.jenis_objek = m.id
+  LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id
+  LEFT JOIN master_status_objek ms ON t.status = ms.id
+  LEFT JOIN master_cabang mc ON t.cabang = mc.id
 
-- Grouping by object type:
-  SELECT m.name as object_type, COUNT(*) as count
+- Grouping by status:
+  SELECT ms.name as status_name, COUNT(*) as count
   FROM {self.table_name} t 
-  LEFT JOIN master_jenis_objek m ON t.jenis_objek = m.id
-  WHERE m.name IS NOT NULL
-  GROUP BY m.name ORDER BY count DESC
+  LEFT JOIN master_status_objek ms ON t.status = ms.id
+  WHERE ms.name IS NOT NULL
+  GROUP BY ms.name ORDER BY count DESC
+
+- Branch performance:
+  SELECT mc.name as branch_name, COUNT(*) as total_projects
+  FROM {self.table_name} t 
+  LEFT JOIN master_cabang mc ON t.cabang = mc.id
+  WHERE mc.name IS NOT NULL
+  GROUP BY mc.name ORDER BY total_projects DESC
 
 Generate ONLY the PostgreSQL query, no explanations."""
 
