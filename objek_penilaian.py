@@ -6,6 +6,7 @@ import json
 import traceback
 from datetime import datetime
 import warnings
+import plotly.graph_objects as go
 
 warnings.filterwarnings('ignore')
 
@@ -155,7 +156,7 @@ class RHRAIChat:
         self.table_name = table_name
     
     def generate_query(self, user_question: str, geographic_context: str = "") -> str:
-        """Use o4-mini to generate SQL query"""
+        """Use o4-mini to generate SQL query with function calling support"""
         try:
             system_prompt = f"""You are a SQL query generator for RHR property appraisal database.
 
@@ -197,6 +198,7 @@ CRITICAL SQL RULES:
 5. Text search: Use "ILIKE '%text%'" for case-insensitive search
 6. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%')"
 7. Always add LIMIT to prevent large result sets
+8. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns (nama_objek, pemberi_tugas, wadmpr, wadmkk)
 
 SAMPLE DATA EXAMPLES:
 Row 1: id=16316, pemberi_tugas="PT Asuransi Jiwa IFG", nama_objek="Rumah", jenis_objek=13, wadmpr="DKI Jakarta", wadmkk="Kota Administrasi Jakarta Selatan", wadmkc="Tebet"
@@ -204,15 +206,39 @@ Row 2: id=17122, pemberi_tugas="PT Perkebunan Nusantara II", nama_objek="Tanah K
 
 Generate ONLY the PostgreSQL query, no explanations."""
 
+            # Define tools for function calling
+            tools = [{
+                "type": "function",
+                "name": "create_map_visualization",
+                "description": "Create map visualization from property data with coordinates. Use this when user asks for map, peta, visualisasi lokasi, or wants to see property locations on map.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "sql_query": {
+                            "type": "string",
+                            "description": "SQL query to fetch property data with coordinates. Must include id, latitude, longitude and descriptive columns."
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Title for the map visualization"
+                        }
+                    },
+                    "required": ["sql_query", "title"],
+                    "additionalProperties": False
+                },
+                "strict": True
+            }]
+
             prompt = f"""User question: {user_question}
 
 {geographic_context}
 
-Generate PostgreSQL query for this question."""
+If user is asking for map/peta/visualisasi lokasi, use create_map_visualization function.
+Otherwise, generate PostgreSQL query for this question."""
 
             response = self.client.responses.create(
                 model="o4-mini",
-                reasoning={"effort": "low"},  # Fast query generation
+                reasoning={"effort": "low"},
                 input=[
                     {
                         "role": "system",
@@ -223,10 +249,11 @@ Generate PostgreSQL query for this question."""
                         "content": prompt
                     }
                 ],
-                max_output_tokens=500  # Queries should be short
+                tools=tools,
+                max_output_tokens=500
             )
             
-            return response.output_text.strip()
+            return response
             
         except Exception as e:
             st.error(f"Error generating query: {str(e)}")
@@ -263,7 +290,86 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
         except Exception as e:
             return f"Maaf, terjadi kesalahan dalam memproses hasil: {str(e)}"
     
-    def direct_chat(self, user_question: str) -> str:
+    def create_map_visualization(self, query_data: pd.DataFrame, title: str = "Property Locations") -> str:
+        """Create map visualization from query data"""
+        try:
+            # Check if data has required columns
+            if 'latitude' not in query_data.columns or 'longitude' not in query_data.columns:
+                return "Error: Data tidak memiliki kolom latitude dan longitude untuk visualisasi peta."
+            
+            # Clean coordinates
+            map_df = query_data.copy()
+            map_df = map_df.dropna(subset=['latitude', 'longitude'])
+            
+            # Convert to numeric
+            map_df['latitude'] = pd.to_numeric(map_df['latitude'], errors='coerce')
+            map_df['longitude'] = pd.to_numeric(map_df['longitude'], errors='coerce')
+            
+            # Filter valid coordinates
+            map_df = map_df[
+                (map_df['latitude'] >= -90) & (map_df['latitude'] <= 90) &
+                (map_df['longitude'] >= -180) & (map_df['longitude'] <= 180)
+            ]
+            
+            if len(map_df) == 0:
+                return "Error: Tidak ada data dengan koordinat yang valid untuk visualisasi peta."
+            
+            # Create map
+            fig = go.Figure()
+            
+            # Create hover text
+            hover_text = []
+            for idx, row in map_df.iterrows():
+                text_parts = []
+                if 'id' in row:
+                    text_parts.append(f"ID: {row['id']}")
+                if 'nama_objek' in row:
+                    text_parts.append(f"Objek: {row['nama_objek']}")
+                if 'pemberi_tugas' in row:
+                    text_parts.append(f"Client: {row['pemberi_tugas']}")
+                if 'wadmpr' in row:
+                    text_parts.append(f"Provinsi: {row['wadmpr']}")
+                if 'wadmkk' in row:
+                    text_parts.append(f"Kab/Kota: {row['wadmkk']}")
+                
+                hover_text.append("<br>".join(text_parts))
+            
+            # Add markers
+            fig.add_trace(go.Scattermapbox(
+                lat=map_df['latitude'],
+                lon=map_df['longitude'],
+                mode='markers',
+                marker=dict(size=8, color='red'),
+                text=hover_text,
+                hovertemplate='%{text}<extra></extra>',
+                name='Properties'
+            ))
+            
+            # Calculate center
+            center_lat = map_df['latitude'].mean()
+            center_lon = map_df['longitude'].mean()
+            
+            # Map layout
+            fig.update_layout(
+                mapbox=dict(
+                    style="open-street-map",
+                    center=dict(lat=center_lat, lon=center_lon),
+                    zoom=8
+                ),
+                height=500,
+                margin=dict(l=0, r=0, t=30, b=0),
+                title=title
+            )
+            
+            # Display map in Streamlit
+            st.plotly_chart(fig, use_container_width=True)
+            
+            return f"✅ Peta berhasil ditampilkan dengan {len(map_df)} properti."
+            
+        except Exception as e:
+            return f"Error membuat visualisasi peta: {str(e)}"
+
+    def direct_chat(self, user_question: str) -> str:   
         """Direct chat using GPT-4.1-mini for non-query questions"""
         try:
             response = self.client.chat.completions.create(
@@ -551,46 +657,89 @@ What would you like to know about your projects?"""
                     
                     geo_context = "Geographic context: " + " | ".join(context_parts)
                 
-                # Step 1: Generate SQL query using o4-mini
-                sql_query = st.session_state.ai_chat.generate_query(prompt, geo_context)
+                # Step 1: Generate SQL query or function call using o4-mini
+                ai_response = st.session_state.ai_chat.generate_query(prompt, geo_context)
                 
-                if sql_query and "SELECT" in sql_query.upper():
-                    try:
-                        # Step 2: Execute the query
-                        result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
-                        
-                        if result_df is not None:
-                            # Show query results in expandable section
-                            with st.expander("📊 Query Results", expanded=False):
-                                st.code(sql_query, language="sql")
-                                st.dataframe(result_df, use_container_width=True)
+                if ai_response and hasattr(ai_response, 'output') and ai_response.output:
+                    # Check if AI called a function
+                    function_called = False
+                    for output_item in ai_response.output:
+                        if hasattr(output_item, 'type') and output_item.type == "function_call":
+                            function_called = True
                             
-                            # Step 3: Format response using GPT-4.1-mini
-                            formatted_response = st.session_state.ai_chat.format_response(
-                                prompt, result_df, sql_query
-                            )
-                            
-                            # Display the formatted response
-                            st.markdown("---")
-                            st.markdown(formatted_response)
-                            
-                            # Store the formatted response
-                            final_response = formatted_response
-                            
-                        else:
-                            error_msg = f"Query gagal dieksekusi: {query_msg}"
-                            st.error(error_msg)
-                            final_response = error_msg
+                            if output_item.name == "create_map_visualization":
+                                # Parse function arguments
+                                args = json.loads(output_item.arguments)
+                                sql_query = args.get("sql_query")
+                                map_title = args.get("title", "Property Locations")
+                                
+                                # Execute the SQL query
+                                result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+                                
+                                if result_df is not None and len(result_df) > 0:
+                                    # Create map visualization
+                                    map_result = st.session_state.ai_chat.create_map_visualization(result_df, map_title)
+                                    
+                                    # Show query details in expandable section
+                                    with st.expander("📊 Query Details", expanded=False):
+                                        st.code(sql_query, language="sql")
+                                        st.dataframe(result_df, use_container_width=True)
+                                    
+                                    # Generate response about the map
+                                    map_response = f"""Saya telah membuat visualisasi peta untuk permintaan Anda.
+
+{map_result}
+
+Peta menampilkan lokasi properti berdasarkan data yang tersedia dengan koordinat latitude dan longitude."""
+                                    
+                                    st.markdown("---")
+                                    st.markdown(map_response)
+                                    final_response = map_response
+                                else:
+                                    error_msg = f"Tidak dapat membuat peta: {query_msg}"
+                                    st.error(error_msg)
+                                    final_response = error_msg
+                            break
                     
-                    except Exception as e:
-                        error_msg = f"Error menjalankan query: {str(e)}"
-                        st.error(error_msg)
-                        final_response = error_msg
-                else:
-                    # If no valid SQL generated, use GPT-4.1-mini directly
-                    direct_response = st.session_state.ai_chat.direct_chat(prompt)
-                    st.markdown(direct_response)
-                    final_response = direct_response
+                    # If no function was called, treat as regular SQL query
+                    if not function_called and hasattr(ai_response, 'output_text'):
+                        sql_query = ai_response.output_text.strip()
+                        
+                        if sql_query and "SELECT" in sql_query.upper():
+                            try:
+                                # Step 2: Execute the query
+                                result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+                                
+                                if result_df is not None:
+                                    # Show query results in expandable section
+                                    with st.expander("📊 Query Results", expanded=False):
+                                        st.code(sql_query, language="sql")
+                                        st.dataframe(result_df, use_container_width=True)
+                                    
+                                    # Step 3: Format response using GPT-4.1-mini
+                                    formatted_response = st.session_state.ai_chat.format_response(
+                                        prompt, result_df, sql_query
+                                    )
+                                    
+                                    # Display the formatted response
+                                    st.markdown("---")
+                                    st.markdown(formatted_response)
+                                    final_response = formatted_response
+                                    
+                                else:
+                                    error_msg = f"Query gagal dieksekusi: {query_msg}"
+                                    st.error(error_msg)
+                                    final_response = error_msg
+                            
+                            except Exception as e:
+                                error_msg = f"Error menjalankan query: {str(e)}"
+                                st.error(error_msg)
+                                final_response = error_msg
+                        else:
+                            # If no valid SQL generated, use GPT-4.1-mini directly
+                            direct_response = st.session_state.ai_chat.direct_chat(prompt)
+                            st.markdown(direct_response)
+                            final_response = direct_response
                 
                 # Add assistant response to history
                 st.session_state.chat_messages.append({
@@ -631,8 +780,8 @@ What would you like to know about your projects?"""
             st.rerun()
     
     with col4:
-        if st.button("Geographic Distribution", use_container_width=True):
-            quick_prompt = "Show me the distribution of projects by province"
+        if st.button("Show Map", use_container_width=True):
+            quick_prompt = "Buatkan peta untuk menampilkan lokasi semua properti"
             st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
             st.rerun()
     
