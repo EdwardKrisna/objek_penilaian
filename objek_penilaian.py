@@ -287,7 +287,15 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                 temperature=0.3
             )
             
-            return response.choices[0].message.content
+            full_response = ""
+            response_container = st.empty()
+            for chunk in response:
+                if chunk.choices[0].delta.content:
+                    full_response += chunk.choices[0].delta.content
+                    response_container.markdown(full_response + "▌")
+            response_container.markdown(full_response)
+            return full_response
+            # return response.choices[0].message.content
             
         except Exception as e:
             return f"Maaf, terjadi kesalahan dalam memproses hasil: {str(e)}"
