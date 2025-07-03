@@ -238,6 +238,7 @@ Otherwise, generate PostgreSQL query for this question."""
 
             response = self.client.responses.create(
                 model="o4-mini",
+                stream=True,
                 reasoning={"effort": "low"},
                 input=[
                     {
@@ -271,6 +272,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
 
             response = self.client.chat.completions.create(
                 model="gpt-4.1-mini",
+                stream=True,
                 messages=[
                     {
                         "role": "system", 
@@ -374,6 +376,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
         try:
             response = self.client.chat.completions.create(
                 model="gpt-4.1-mini",
+                stream=True,
                 messages=[
                     {
                         "role": "system", 
@@ -721,9 +724,9 @@ Peta menampilkan lokasi properti berdasarkan data yang tersedia dengan koordinat
                                         prompt, result_df, sql_query
                                     )
                                     
-                                    # Display the formatted response
-                                    st.markdown("---")
-                                    st.markdown(formatted_response)
+                                    # # Display the formatted response
+                                    # st.markdown("---")
+                                    # st.markdown(formatted_response)
                                     final_response = formatted_response
                                     
                                 else:
