@@ -258,7 +258,6 @@ SQL JOIN EXAMPLES:
 
 Generate ONLY the PostgreSQL query, no explanations."""
 
-        # detect map intent in Python so we can drive tool_choice
         is_map_request = bool(re.search(r"\b(map|peta|visualisasi lokasi)\b", user_question, re.I))
 
         tools = [{
@@ -280,15 +279,23 @@ Generate ONLY the PostgreSQL query, no explanations."""
             "strict": True
         }]
 
+        messages = [
+            {"role": "system", "content": system_prompt}
+        ]
+        if geographic_context:
+            messages.append({"role": "user", "content": geographic_context})
+        messages.append({"role": "user", "content": user_question})
+
         response = self.client.responses.create(
             model="o4-mini",
             reasoning={"effort": "low"},
-            input=[
-                {"role": "system",  "content": system_prompt},
-                {"role": "user",    "content": user_question}
-            ],
+            input=messages,
             tools=tools,
-            tool_choice=( {"type":"function","name":"create_map_visualization"} if is_map_request else "none" ),
+            tool_choice=(
+                {"type": "function", "name": "create_map_visualization"}
+                if is_map_request else
+                "none"
+            ),
             max_output_tokens=500
         )
 
