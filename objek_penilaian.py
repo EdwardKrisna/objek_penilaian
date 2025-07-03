@@ -174,7 +174,7 @@ Project Information:
 Property Information:
 - objek_penilaian (text): Appraisal object type (e.g., "real properti")
 - nama_objek (text): Object name (e.g., "Rumah", "Tanah Kosong")
-- jenis_objek (integer): Object type code (13=House, 1=Land, etc.)
+- jenis_objek (integer): Object type code that joins with master_jenis_objek table for readable names
 - kepemilikan (text): Ownership type (e.g., "tunggal" = single ownership)
 - keterangan (text): Additional notes (e.g., "Luas Tanah : 1.148", may contain NULL)
 
@@ -193,16 +193,37 @@ Geographic Data:
 CRITICAL SQL RULES:
 1. For counting: SELECT COUNT(*) FROM {self.table_name} WHERE...
 2. For samples: SELECT id, [columns] FROM {self.table_name} WHERE... ORDER BY id DESC LIMIT 5
-3. For grouping: SELECT [column], COUNT(*) FROM {self.table_name} WHERE [column] IS NOT NULL GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
-4. Always handle NULLs: Use "WHERE column IS NOT NULL" when querying specific columns
-5. Text search: Use "ILIKE '%text%'" for case-insensitive search
-6. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%')"
-7. Always add LIMIT to prevent large result sets
-8. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns (nama_objek, pemberi_tugas, wadmpr, wadmkk)
+3. For grouping: SELECT [column], COUNT(*) FROM {self.table_name} t LEFT JOIN master_jenis_objek m ON t.jenis_objek = m.id WHERE [column] IS NOT NULL GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
+4. For object type analysis: Always use m.name instead of t.jenis_objek for readable results
+5. Always handle NULLs: Use "WHERE column IS NOT NULL" when querying specific columns
+6. Text search: Use "ILIKE '%text%'" for case-insensitive search
+7. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%')"
+8. Always add LIMIT to prevent large result sets
+9. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns (nama_objek, pemberi_tugas, wadmpr, wadmkk)
+10. For readable object types: Always JOIN with master_jenis_objek to get names instead of codes
+11. Use LEFT JOIN master_jenis_objek m ON t.jenis_objek = m.id
+12. Select m.name as jenis_objek_name for readable output
 
 SAMPLE DATA EXAMPLES:
 Row 1: id=16316, pemberi_tugas="PT Asuransi Jiwa IFG", nama_objek="Rumah", jenis_objek=13, wadmpr="DKI Jakarta", wadmkk="Kota Administrasi Jakarta Selatan", wadmkc="Tebet"
 Row 2: id=17122, pemberi_tugas="PT Perkebunan Nusantara II", nama_objek="Tanah Kosong", jenis_objek=1, wadmpr="Sumatera Utara", wadmkk="Deli Serdang", wadmkc="Labuhan Deli"
+
+LOOKUP TABLES:
+- master_jenis_objek: Contains id and name for jenis_objek codes
+  Join: {self.table_name}.jenis_objek = master_jenis_objek.id
+
+SQL JOIN EXAMPLES:
+- Simple query with object type names: 
+  SELECT t.id, t.nama_objek, m.name as jenis_objek_name 
+  FROM {self.table_name} t 
+  LEFT JOIN master_jenis_objek m ON t.jenis_objek = m.id
+
+- Grouping by object type:
+  SELECT m.name as object_type, COUNT(*) as count
+  FROM {self.table_name} t 
+  LEFT JOIN master_jenis_objek m ON t.jenis_objek = m.id
+  WHERE m.name IS NOT NULL
+  GROUP BY m.name ORDER BY count DESC
 
 Generate ONLY the PostgreSQL query, no explanations."""
 
