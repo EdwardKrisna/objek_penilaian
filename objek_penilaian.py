@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from openai import OpenAI
 import json
 import traceback
 from datetime import datetime
@@ -148,17 +147,121 @@ class DatabaseConnection:
             return []
 
 class RHRAIChat:
-    """AI chatbot for database queries"""
+    """AI chatbot for database queries using o4-mini for queries and GPT-4.1-mini for responses"""
     
     def __init__(self, api_key: str, table_name: str):
-        self.llm = ChatOpenAI(
-            model="gpt-4.1-mini",
-            api_key=api_key,
-            temperature=0.3,
-            max_tokens=2000
-        )
+        # Single OpenAI client for both models
+        self.client = OpenAI(api_key=api_key)
         self.table_name = table_name
-        self.system_prompt = self.create_system_prompt()
+        self.query_system_prompt = self.create_query_system_prompt()
+    
+    def create_query_system_prompt(self):
+        return f"""You are a SQL query generator for RHR property database. 
+Analyze user questions and generate efficient PostgreSQL queries.
+
+TABLE: {self.table_name}
+COLUMNS: sumber, pemberi_tugas, no_kontrak, nama_lokasi, id, objek_penilaian, nama_objek, jenis_objek, kepemilikan, keterangan, status, latitude, longitude, cabang, geometry, wadmpr, wadmkk, wadmkc
+
+CORE RULES:
+1. For counting: SELECT COUNT(*) FROM {self.table_name} WHERE...
+2. For samples: SELECT id, columns FROM {self.table_name} WHERE... LIMIT 5
+3. For grouping: SELECT column, COUNT(*) FROM {self.table_name} GROUP BY column
+4. Always use IS NOT NULL for columns being queried
+5. Use ILIKE '%text%' for text search
+6. Always add reasonable LIMIT
+
+COMMON PATTERNS:
+- Location search: wadmpr/wadmkk/wadmkc ILIKE '%location%'
+- Client analysis: GROUP BY pemberi_tugas
+- Property types: GROUP BY jenis_objek, nama_objek
+
+Generate only the SQL query, nothing else."""
+    
+    def generate_query(self, user_question: str, geographic_context: str = "") -> str:
+        """Use o4-mini to generate SQL query"""
+        try:
+            prompt = f"""User question: {user_question}
+
+{geographic_context}
+
+Generate PostgreSQL query for this question."""
+
+            response = self.client.responses.create(
+                model="o4-mini",
+                reasoning={"effort": "low"},  # Fast query generation
+                input=[
+                    {
+                        "role": "system",
+                        "content": self.query_system_prompt
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                max_output_tokens=500  # Queries should be short
+            )
+            
+            return response.output_text.strip()
+            
+        except Exception as e:
+            st.error(f"Error generating query: {str(e)}")
+            return None
+    
+    def format_response(self, user_question: str, query_results: pd.DataFrame, sql_query: str) -> str:
+        """Use GPT-4.1-mini to format response in Bahasa Indonesia"""
+        try:
+            prompt = f"""User asked: {user_question}
+
+SQL Query executed: {sql_query}
+Results: {query_results.to_dict('records') if len(query_results) > 0 else 'No results found'}
+
+Provide clear answer in Bahasa Indonesia. Focus on business insights, not technical details."""
+
+            response = self.client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You interpret database results for business users. Always respond in Bahasa Indonesia with clear, actionable insights."
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                max_tokens=2000,
+                temperature=0.3
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            return f"Maaf, terjadi kesalahan dalam memproses hasil: {str(e)}"
+    
+    def direct_chat(self, user_question: str) -> str:
+        """Direct chat using GPT-4.1-mini for non-query questions"""
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are RHR assistant. Always respond in Bahasa Indonesia."
+                    },
+                    {
+                        "role": "user", 
+                        "content": user_question
+                    }
+                ],
+                max_tokens=2000,
+                temperature=0.3
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            return f"Maaf, terjadi kesalahan: {str(e)}"
     
     def create_system_prompt(self):
         return f"""
@@ -495,14 +598,15 @@ def render_ai_chat():
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
         # Add welcome message
-        welcome_msg = """Halo! Saya RHR AI. Saya akan membantu Anda menganalisis proyek penilaian properti Anda.
+        welcome_msg = """Hello! I'm your RHR AI assistant. I can help you analyze your property appraisal projects.
 
-Anda dapat bertanya hal-hal seperti:
-- Berapa banyak proyek yang kita miliki di Jakarta?
-- Siapa saja 5 klien terbesar kita?
-- Jenis properti apa yang paling sering kita nilai?
+You can ask me questions like:
+- "How many projects do we have in Jakarta?"
+- "Who are our top 5 clients?"
+- "Show me some recent land appraisals"
+- "What types of properties do we appraise most?"
 
-Apa yang ingin anda ketahui? Tanyakan saja pada saya!"""
+What would you like to know about your projects?"""
         
         st.session_state.chat_messages.append({
             "role": "assistant",
@@ -540,113 +644,69 @@ Apa yang ingin anda ketahui? Tanyakan saja pada saya!"""
         # Generate AI response
         with st.chat_message("assistant"):
             try:
-                # Build message history
-                messages = [SystemMessage(content=st.session_state.ai_chat.system_prompt)]
-                
-                # Add geographic context if available
+                # Build geographic context
+                geo_context = ""
                 if hasattr(st.session_state, 'geographic_filters') and any(st.session_state.geographic_filters.values()):
-                    geo_context = "Current geographic filters: "
                     filters = st.session_state.geographic_filters
+                    context_parts = []
                     if filters.get('wadmpr'):
-                        geo_context += f"Provinces: {filters['wadmpr']} "
+                        context_parts.append(f"Provinces: {filters['wadmpr']}")
                     if filters.get('wadmkk'):
-                        geo_context += f"Regencies: {filters['wadmkk']} "
+                        context_parts.append(f"Regencies: {filters['wadmkk']}")
                     if filters.get('wadmkc'):
-                        geo_context += f"Districts: {filters['wadmkc']} "
+                        context_parts.append(f"Districts: {filters['wadmkc']}")
                     
-                    messages.append(SystemMessage(content=geo_context))
+                    geo_context = "Geographic context: " + " | ".join(context_parts)
                 
-                # Add conversation history
-                for msg in st.session_state.chat_messages:
-                    if msg["role"] == "user":
-                        messages.append(HumanMessage(content=msg["content"]))
-                    elif msg["role"] == "assistant":
-                        messages.append(AIMessage(content=msg["content"]))
+                # Step 1: Generate SQL query using o4-mini
+                sql_query = st.session_state.ai_chat.generate_query(prompt, geo_context)
                 
-                # Get AI response
-                response = st.session_state.ai_chat.llm.invoke(messages)
-                
-                # If response contains a SQL query, execute it
-                if "SELECT" in response.content.upper():
-                    # Extract SQL query (simple extraction)
-                    lines = response.content.split('\n')
-                    sql_query = None
-                    in_sql_block = False
-                    
-                    for line in lines:
-                        if '```sql' in line.lower() or '```' in line and 'SELECT' in line.upper():
-                            in_sql_block = True
-                            continue
-                        elif '```' in line and in_sql_block:
-                            break
-                        elif in_sql_block and line.strip():
-                            if sql_query is None:
-                                sql_query = line.strip()
-                            else:
-                                sql_query += " " + line.strip()
-                    
-                    # If no SQL block found, look for SELECT statements
-                    if not sql_query:
-                        for line in lines:
-                            if line.strip().upper().startswith('SELECT'):
-                                sql_query = line.strip()
-                                break
-                    
-                    if sql_query:
-                        try:
-                            # Execute the query
-                            result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
-                            
-                            if result_df is not None and len(result_df) > 0:
-                                # Show query results in expandable section
-                                with st.expander("📊 Query Results", expanded=False):
-                                    st.code(sql_query, language="sql")
-                                    st.dataframe(result_df, use_container_width=True)
-                                
-                                # Create a follow-up response with the actual results
-                                follow_up_prompt = f"""
-Based on the query results, provide a clear and conversational answer to the user's question.
-
-Query executed: {sql_query}
-Results: {result_df.to_dict('records')}
-
-Please give a natural, helpful response that directly answers what the user asked, without showing technical details or raw data. Focus on the key insights and numbers that matter to the user.
-"""
-                                
-                                # Get AI interpretation of results
-                                interpretation_messages = [
-                                    SystemMessage(content="You are a helpful assistant that interprets database query results for business users. Provide clear, conversational answers in Bahasa Indonesia without technical jargon."),
-                                    HumanMessage(content=follow_up_prompt)
-                                ]
-                                
-                                interpretation_response = st.session_state.ai_chat.llm.invoke(interpretation_messages)
-                                
-                                # Display the interpreted response
-                                st.markdown("---")
-                                st.markdown(interpretation_response.content)
-                                
-                                # Update the response content to include interpretation
-                                response.content = interpretation_response.content
-                                
-                            else:
-                                st.error(f"Query failed: {query_msg}")
-                                response.content += f"\n\nNote: Query execution failed - {query_msg}"
+                if sql_query and "SELECT" in sql_query.upper():
+                    try:
+                        # Step 2: Execute the query
+                        result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
                         
-                        except Exception as e:
-                            st.error(f"Error executing query: {str(e)}")
-                            response.content += f"\n\nNote: Error executing query - {str(e)}"
-                
-                # # Display the response
-                # st.markdown(response.content)
+                        if result_df is not None:
+                            # Show query results in expandable section
+                            with st.expander("📊 Query Results", expanded=False):
+                                st.code(sql_query, language="sql")
+                                st.dataframe(result_df, use_container_width=True)
+                            
+                            # Step 3: Format response using GPT-4.1-mini
+                            formatted_response = st.session_state.ai_chat.format_response(
+                                prompt, result_df, sql_query
+                            )
+                            
+                            # Display the formatted response
+                            st.markdown("---")
+                            st.markdown(formatted_response)
+                            
+                            # Store the formatted response
+                            final_response = formatted_response
+                            
+                        else:
+                            error_msg = f"Query gagal dieksekusi: {query_msg}"
+                            st.error(error_msg)
+                            final_response = error_msg
+                    
+                    except Exception as e:
+                        error_msg = f"Error menjalankan query: {str(e)}"
+                        st.error(error_msg)
+                        final_response = error_msg
+                else:
+                    # If no valid SQL generated, use GPT-4.1-mini directly
+                    direct_response = st.session_state.ai_chat.direct_chat(prompt)
+                    st.markdown(direct_response)
+                    final_response = direct_response
                 
                 # Add assistant response to history
                 st.session_state.chat_messages.append({
                     "role": "assistant",
-                    "content": response.content
+                    "content": final_response
                 })
                 
             except Exception as e:
-                error_msg = f"I encountered an error: {str(e)}\n\nPlease try rephrasing your question."
+                error_msg = f"Maaf, terjadi kesalahan: {str(e)}"
                 st.error(error_msg)
                 st.session_state.chat_messages.append({
                     "role": "assistant",
