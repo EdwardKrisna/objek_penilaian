@@ -7,6 +7,7 @@ import traceback
 from datetime import datetime
 import warnings
 import plotly.graph_objects as go
+import re
 
 warnings.filterwarnings('ignore')
 
@@ -156,9 +157,16 @@ class RHRAIChat:
         self.table_name = table_name
     
     def generate_query(self, user_question: str, geographic_context: str = "") -> str:
-        """Use o4-mini to generate SQL query with function calling support"""
-        try:
-            system_prompt = f"""You are a SQL query generator for RHR property appraisal database.
+        system_prompt = f"""
+You are a strict SQL‐only assistant for the RHR property appraisal database.
+You have one helper function:
+
+  create_map_visualization(sql_query: string, title: string)
+    → Returns a map of properties when called.
+
+**RULES**  
+- If the user’s question *asks for a map*, “peta”, or “visualisasi lokasi”, you **must** respond *only* with a function call to `create_map_visualization` (no SQL text).  
+- Otherwise you **must not** call any function, and instead return *only* a PostgreSQL query (no explanations).
 
 TABLE: {self.table_name}
 
@@ -250,58 +258,41 @@ SQL JOIN EXAMPLES:
 
 Generate ONLY the PostgreSQL query, no explanations."""
 
-            # Define tools for function calling
-            tools = [{
-                "type": "function",
-                "name": "create_map_visualization",
-                "description": "Create map visualization from property data with coordinates. Use this when user asks for map, peta, visualisasi lokasi, or wants to see property locations on map.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "sql_query": {
-                            "type": "string",
-                            "description": "SQL query to fetch property data with coordinates. Must include id, latitude, longitude and descriptive columns."
-                        },
-                        "title": {
-                            "type": "string",
-                            "description": "Title for the map visualization"
-                        }
+        # detect map intent in Python so we can drive tool_choice
+        is_map_request = bool(re.search(r"\b(map|peta|visualisasi lokasi)\b", user_question, re.I))
+
+        tools = [{
+            "type": "function",
+            "name": "create_map_visualization",
+            "description": "Create a map of properties. Only use when the user explicitly requests location visualization.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sql_query": {
+                        "type": "string",
+                        "description": "SQL query including id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk"
                     },
-                    "required": ["sql_query", "title"],
-                    "additionalProperties": False
+                    "title": { "type": "string" }
                 },
-                "strict": True
-            }]
+                "required": ["sql_query", "title"],
+                "additionalProperties": False
+            },
+            "strict": True
+        }]
 
-            prompt = f"""User question: {user_question}
+        response = self.client.responses.create(
+            model="o4-mini",
+            reasoning={"effort": "low"},
+            input=[
+                {"role": "system",  "content": system_prompt},
+                {"role": "user",    "content": user_question}
+            ],
+            tools=tools,
+            tool_choice=( {"type":"function","name":"create_map_visualization"} if is_map_request else "none" ),
+            max_output_tokens=500
+        )
 
-{geographic_context}
-
-Use create_map_visualization function, ONLY when user is asking for map/peta/visualisasi lokasi.
-Otherwise, generate PostgreSQL query for this question."""
-
-            response = self.client.responses.create(
-                model="o4-mini",
-                reasoning={"effort": "low"},
-                input=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                tools=tools,
-                max_output_tokens=500
-            )
-            
-            return response
-            
-        except Exception as e:
-            st.error(f"Error generating query: {str(e)}")
-            return None
+        return response
     
     def format_response(self, user_question: str, query_results: pd.DataFrame, sql_query: str) -> str:
         """Use GPT-4.1-mini to format response in Bahasa Indonesia"""
