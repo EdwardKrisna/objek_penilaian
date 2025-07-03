@@ -277,7 +277,7 @@ Generate ONLY the PostgreSQL query, no explanations."""
 
 {geographic_context}
 
-If user is asking for map/peta/visualisasi lokasi, use create_map_visualization function.
+Use create_map_visualization function, ONLY when user is asking for map/peta/visualisasi lokasi.
 Otherwise, generate PostgreSQL query for this question."""
 
             response = self.client.responses.create(
