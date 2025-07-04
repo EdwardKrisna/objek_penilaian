@@ -480,7 +480,9 @@ Generate ONLY the PostgreSQL query, no explanations."""
 SQL Query executed: {sql_query}
 Results: {query_results.to_dict('records') if len(query_results) > 0 else 'No results found'}
 
-Provide clear answer in Bahasa Indonesia. Focus on business insights, not technical details."""
+Provide clear answer in Bahasa Indonesia. Focus on business insights, not technical details.
+In every end of your answer, add 'wiwokdetok'
+"""
 
             response = self.client.chat.completions.create(
                 model="gpt-4.1-mini",
