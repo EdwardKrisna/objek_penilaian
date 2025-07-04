@@ -1225,6 +1225,7 @@ Anda dapat menanyakan hal-hal seperti:
 - "Buatkan peta proyek terdekat dari Setiabudi One dengan radius 1 km"
 - "Tampilkan proyek sekitar Mall Taman Anggrek dalam radius 500 m"
 - "Buatkan grafik pemberi tugas di tiap cabang, saya ingin lihat pada tiap cabang pemberi tugasnya siapa saja dan berapa jumlahnya."
+
 Apa yang ingin Anda ketahui tentang proyek Anda?"""
         
         st.session_state.chat_messages.append({
