@@ -1221,7 +1221,6 @@ def render_ai_chat():
 Anda dapat menanyakan hal-hal seperti:
 - "Berapa banyak proyek yang kita miliki di Jakarta?"
 - "Siapa 5 klien utama kita?"
-- "Tunjukkan beberapa penilaian tanah terbaru"
 - "Jenis properti apa yang paling sering kita nilai?"
 - "Buatkan peta proyek terdekat dari Setiabudi One dengan radius 1 km"
 - "Tampilkan proyek sekitar Mall Taman Anggrek dalam radius 500 m"
