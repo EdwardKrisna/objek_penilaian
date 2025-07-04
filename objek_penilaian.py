@@ -433,7 +433,7 @@ Generate ONLY the PostgreSQL query, no explanations."""
                             "description": "Column name for color grouping (optional)"
                         }
                     },
-                    "required": ["chart_type", "sql_query", "title"],
+                    "required": ["chart_type", "sql_query", "title", "x_column", "y_column", "color_column"],
                     "additionalProperties": False
                 },
                 "strict": True
@@ -448,7 +448,7 @@ Generate ONLY the PostgreSQL query, no explanations."""
         messages.append({"role": "user", "content": user_question})
 
         # Determine which function to use
-        tool_choice = "none"
+        tool_choice = "auto"
         if is_chart_request:
             tool_choice = {"type": "function", "name": "create_chart_visualization"}
         elif is_nearby_request and is_map_request:
