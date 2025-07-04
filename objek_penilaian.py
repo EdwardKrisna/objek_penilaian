@@ -1216,17 +1216,17 @@ def render_ai_chat():
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
         # Add welcome message
-        welcome_msg = """Hello! I'm your RHR AI assistant. I can help you analyze your property appraisal projects.
+        welcome_msg = """Halo! Saya asisten AI RHR Anda. Saya dapat membantu Anda menganalisis proyek penilaian properti Anda.
 
-You can ask me questions like:
-- "How many projects do we have in Jakarta?"
-- "Who are our top 5 clients?"
-- "Show me some recent land appraisals"
-- "What types of properties do we appraise most?"
-- **NEW:** "Buatkan map proyek terdekat dari Setiabudi One radius 1km"
-- **NEW:** "Tampilkan proyek sekitar Mall Taman Anggrek dalam radius 500m"
-
-What would you like to know about your projects?"""
+Anda dapat menanyakan hal-hal seperti:
+- "Berapa banyak proyek yang kita miliki di Jakarta?"
+- "Siapa 5 klien utama kita?"
+- "Tunjukkan beberapa penilaian tanah terbaru"
+- "Jenis properti apa yang paling sering kita nilai?"
+- "Buatkan peta proyek terdekat dari Setiabudi One dengan radius 1 km"
+- "Tampilkan proyek sekitar Mall Taman Anggrek dalam radius 500 m"
+- "Buatkan grafik pemberi tugas di tiap cabang, saya ingin lihat pada tiap cabang pemberi tugasnya siapa saja dan berapa jumlahnya."
+Apa yang ingin Anda ketahui tentang proyek Anda?"""
         
         st.session_state.chat_messages.append({
             "role": "assistant",
