@@ -324,6 +324,7 @@ Property Information:
 Status & Management:
 - status (float8): Project status code that joins with master_status_objek table for readable names  
 - cabang (float8): Branch office code that joins with master_cabang table for readable names
+- jc_text (text): Job captain or 'jc' (e.g., "IMW","FHM")
 
 Geographic Data:
 - latitude (float8): Latitude coordinates (e.g., -6.236507782741299)
