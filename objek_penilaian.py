@@ -481,7 +481,7 @@ SQL Query executed: {sql_query}
 Results: {query_results.to_dict('records') if len(query_results) > 0 else 'No results found'}
 
 Provide clear answer in Bahasa Indonesia. Focus on business insights, not technical details.
-In every end of your answer, add 'wiwokdetok'
+In every end of your answer, add 'young q bar bar !!!'
 """
 
             response = self.client.chat.completions.create(
