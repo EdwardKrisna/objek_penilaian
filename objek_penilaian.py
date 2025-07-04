@@ -284,6 +284,7 @@ class RHRAIChat:
         return location_name, radius_km
     
     def generate_query(self, user_question: str, geographic_context: str = "") -> str:
+        #create_chart_visualization(chart_type: string, sql_query: string, title: string, x_column: string, color_column y_column: string: string)
         system_prompt = f"""
 You are a strict SQL‐only assistant for the RHR property appraisal database.
 You have three helper functions:
@@ -294,7 +295,7 @@ You have three helper functions:
   find_nearby_projects(location_name: string, radius_km: float, title: string)
     → Finds and maps projects near a specific location within given radius.
     
-  create_chart_visualization(chart_type: string, sql_query: string, title: string, x_column: string, y_column: string: string)
+  create_chart_visualization(chart_type: string, sql_query: string, title: string, x_column: string, color_column ,y_column: string: string)
     → Creates various charts (bar, pie, line, scatter, histogram) from data.
 
 **RULES**  
@@ -429,14 +430,14 @@ Generate ONLY the PostgreSQL query, no explanations."""
                             "type": "string", 
                             "description": "Column name for y-axis (optional, can be auto-detected)"
                         },
-                        # "color_column": {
-                        #     "type": "string",
-                        #     "description": "Column name for color grouping (optional)"
-                        # }
+                        "color_column": {
+                            "type": "string",
+                            "description": "Column name for color grouping (optional)"
+                        }
                     },
                     "required": ["chart_type", "sql_query", "title",
                                   "x_column", "y_column",
-                                    # "color_column"
+                                    "color_column"
                                     ],
                     "additionalProperties": False
                 },
@@ -1339,7 +1340,7 @@ Peta menampilkan lokasi properti berdasarkan data yang tersedia dengan koordinat
                                 chart_title = args.get("title", "Data Visualization")
                                 x_col = args.get("x_column")
                                 y_col = args.get("y_column") 
-                                # color_col = args.get("color_column")
+                                color_col = args.get("color_column")
                                 
                                 # Execute the SQL query
                                 result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
@@ -1347,7 +1348,8 @@ Peta menampilkan lokasi properti berdasarkan data yang tersedia dengan koordinat
                                 if result_df is not None and len(result_df) > 0:
                                     # Create chart visualization
                                     chart_result = st.session_state.ai_chat.create_chart_visualization(
-                                        result_df, chart_type, chart_title, x_col, y_col, color_col
+                                        result_df, chart_type, chart_title, x_col, y_col,
+                                          color_col
                                     )
                                     
                                     # Show query details in expandable section
