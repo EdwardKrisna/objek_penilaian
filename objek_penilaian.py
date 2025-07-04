@@ -7,7 +7,10 @@ import traceback
 from datetime import datetime
 import warnings
 import plotly.graph_objects as go
+import plotly.express as px
 import re
+import requests
+import math
 
 warnings.filterwarnings('ignore')
 
@@ -58,6 +61,46 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+class GeocodeService:
+    """Handle geocoding using Google Maps Geocoding API"""
+    
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://maps.googleapis.com/maps/api/geocode/json"
+    
+    def geocode_address(self, address: str) -> tuple:
+        """
+        Geocode an address to get latitude and longitude
+        Returns: (latitude, longitude, formatted_address) or (None, None, None) if failed
+        """
+        try:
+            params = {
+                'address': address,
+                'key': self.api_key
+            }
+            
+            response = requests.get(self.base_url, params=params)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if data['status'] == 'OK' and data['results']:
+                result = data['results'][0]
+                location = result['geometry']['location']
+                formatted_address = result['formatted_address']
+                
+                return (
+                    location['lat'],
+                    location['lng'],
+                    formatted_address
+                )
+            else:
+                return None, None, None
+                
+        except Exception as e:
+            st.error(f"Geocoding error: {str(e)}")
+            return None, None, None
 
 class DatabaseConnection:
     """Handle PostgreSQL database connections"""
@@ -151,22 +194,114 @@ class DatabaseConnection:
 class RHRAIChat:
     """AI chatbot for database queries using o4-mini for queries and GPT-4.1-mini for responses"""
     
-    def __init__(self, api_key: str, table_name: str):
+    def __init__(self, api_key: str, table_name: str, geocode_service: GeocodeService = None):
         # Single OpenAI client for both models
         self.client = OpenAI(api_key=api_key)
         self.table_name = table_name
+        self.geocode_service = geocode_service
+    
+    def calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """
+        Calculate the great circle distance between two points on Earth (in kilometers)
+        using the Haversine formula
+        """
+        # Convert latitude and longitude from degrees to radians
+        lat1_rad = math.radians(lat1)
+        lon1_rad = math.radians(lon1)
+        lat2_rad = math.radians(lat2)
+        lon2_rad = math.radians(lon2)
+        
+        # Haversine formula
+        dlat = lat2_rad - lat1_rad
+        dlon = lon2_rad - lon1_rad
+        a = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon/2)**2
+        c = 2 * math.asin(math.sqrt(a))
+        
+        # Radius of Earth in kilometers
+        r = 6371
+        
+        return c * r
+    
+    def extract_location_and_radius(self, user_question: str) -> tuple:
+        """
+        Extract location name and radius from user question
+        Returns: (location_name, radius_km)
+        """
+        # Pattern to extract location and radius
+        # Examples: "setiabudi one (radius 1km)", "mall taman anggrek radius 2km", "terdekat dari plaza indonesia (500m)"
+        
+        # Extract radius
+        radius_patterns = [
+            r'radius\s*(\d+(?:\.\d+)?)\s*km',
+            r'radius\s*(\d+(?:\.\d+)?)\s*meter',
+            r'radius\s*(\d+(?:\.\d+)?)\s*m\b',
+            r'\((\d+(?:\.\d+)?)\s*km\)',
+            r'\((\d+(?:\.\d+)?)\s*meter\)',
+            r'\((\d+(?:\.\d+)?)\s*m\)'
+        ]
+        
+        radius_km = 1.0  # default radius
+        for pattern in radius_patterns:
+            match = re.search(pattern, user_question, re.IGNORECASE)
+            if match:
+                radius_value = float(match.group(1))
+                # Convert to km if needed
+                if 'meter' in pattern or r'\s*m\b' in pattern or r'\s*m\)' in pattern:
+                    radius_km = radius_value / 1000
+                else:
+                    radius_km = radius_value
+                break
+        
+        # Extract location name
+        # Remove common phrases and extract the location
+        cleaned_question = user_question.lower()
+        
+        # Enhanced removal of common phrases for Indonesian language
+        remove_phrases = [
+            'ada proyek apa saja di', 'ada proyek apa di', 'ada apa di',
+            'buatkan map', 'buatkan peta', 'tampilkan map', 'tampilkan peta',
+            'proyek terdekat dari', 'terdekat dari', 'proyek sekitar', 'proyek dekat',
+            'di sekitar', 'di dekat', 'sekitar', 'dekat', 'map', 'near', 'nearby',
+            'what projects are', 'show me projects', 'find projects'
+        ]
+        
+        for phrase in remove_phrases:
+            cleaned_question = cleaned_question.replace(phrase, '')
+        
+        # Remove radius information
+        for pattern in radius_patterns:
+            cleaned_question = re.sub(pattern, '', cleaned_question, flags=re.IGNORECASE)
+        
+        # Clean up and extract location
+        location_name = cleaned_question.strip()
+        
+        # Remove extra parentheses, question marks, and common words
+        location_name = re.sub(r'\(.*?\)', '', location_name)
+        location_name = location_name.replace('radius', '').replace('km', '').replace('meter', '').replace('m', '')
+        location_name = location_name.replace('?', '').replace('!', '').replace(',', '')
+        location_name = location_name.strip()
+        
+        return location_name, radius_km
     
     def generate_query(self, user_question: str, geographic_context: str = "") -> str:
         system_prompt = f"""
 You are a strict SQL‐only assistant for the RHR property appraisal database.
-You have one helper function:
+You have three helper functions:
 
   create_map_visualization(sql_query: string, title: string)
     → Returns a map of properties when called.
+    
+  find_nearby_projects(location_name: string, radius_km: float, title: string)
+    → Finds and maps projects near a specific location within given radius.
+    
+  create_chart_visualization(chart_type: string, sql_query: string, title: string, x_column: string, y_column: string, color_column: string)
+    → Creates various charts (bar, pie, line, scatter, histogram) from data.
 
 **RULES**  
-- If the user’s question *asks for a map*, “peta”, or “visualisasi lokasi”, you **must** respond *only* with a function call to `create_map_visualization` (no SQL text).  
-- Otherwise you **must not** call any function, and instead return *only* a PostgreSQL query (no explanations).
+- If the user asks for charts/graphs ("grafik", "chart", "barchart", "pie", etc.), use `create_chart_visualization` function.
+- If the user asks for projects near a specific location, use `find_nearby_projects` function.
+- If the user asks for a general map, use `create_map_visualization` function.  
+- Otherwise return *only* a PostgreSQL query (no explanations).
 
 TABLE: {self.table_name}
 
@@ -177,23 +312,23 @@ Project Information:
 - pemberi_tugas (text): Client/Task giver (e.g., "PT Asuransi Jiwa IFG", "PT Perkebunan Nusantara II")
 - no_kontrak (text): Contract number (e.g., "RHR00C1P0623111.0")
 - nama_lokasi (text): Location name (e.g., "Lokasi 20", "Lokasi 3")
-- id (integer): Unique project identifier (e.g., 16316, 17122) - PRIMARY KEY
+- id (int8): Unique project identifier (e.g., 16316, 17122) - PRIMARY KEY
 
 Property Information:
 - objek_penilaian (text): Appraisal object type (e.g., "real properti")
 - nama_objek (text): Object name (e.g., "Rumah", "Tanah Kosong")
-- jenis_objek (integer): Object type code that joins with master_jenis_objek table for readable names
+- jenis_objek (float8): Object type code that joins with master_jenis_objek table for readable names
 - kepemilikan (text): Ownership type (e.g., "tunggal" = single ownership)
 - keterangan (text): Additional notes (e.g., "Luas Tanah : 1.148", may contain NULL)
 
 Status & Management:
-- status (integer): Project status code that joins with master_status_objek table for readable names  
-- cabang (integer): Branch office code that joins with master_cabang table for readable names
+- status (float8): Project status code that joins with master_status_objek table for readable names  
+- cabang (float8): Branch office code that joins with master_cabang table for readable names
 
 Geographic Data:
-- latitude (decimal): Latitude coordinates (e.g., -6.236507782741299)
-- longitude (decimal): Longitude coordinates (e.g., 106.86356067983168)
-- geometry (text): PostGIS geometry field (binary spatial data)
+- latitude (float8): Latitude coordinates (e.g., -6.236507782741299)
+- longitude (float8): Longitude coordinates (e.g., 106.86356067983168)
+- geometry (geometry): PostGIS geometry field (binary spatial data)
 - wadmpr (text): Province (e.g., "DKI Jakarta", "Sumatera Utara")
 - wadmkk (text): Regency/City (e.g., "Kota Administrasi Jakarta Selatan", "Deli Serdang")
 - wadmkc (text): District (e.g., "Tebet", "Labuhan Deli")
@@ -206,7 +341,8 @@ CRITICAL SQL RULES:
    - Status: SELECT ms.name as status_name, COUNT(*) FROM {self.table_name} t LEFT JOIN master_status_objek ms ON t.status = ms.id GROUP BY ms.name ORDER BY COUNT(*) DESC LIMIT 10  
    - Branch: SELECT mc.name as branch_name, COUNT(*) FROM {self.table_name} t LEFT JOIN master_cabang mc ON t.cabang = mc.id GROUP BY mc.name ORDER BY COUNT(*) DESC LIMIT 10
    - Other columns: SELECT [column], COUNT(*) FROM {self.table_name} t WHERE [column] IS NOT NULL GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
-4. Always use readable names: mj.name (not jenis_objek), ms.name (not status), mc.name (not cabang)5. Always handle NULLs: Use "WHERE column IS NOT NULL" when querying specific columns
+4. Always use readable names: mj.name (not jenis_objek), ms.name (not status), mc.name (not cabang)
+5. Always handle NULLs: Use "WHERE column IS NOT NULL" when querying specific columns
 6. Text search: Use "ILIKE '%text%'" for case-insensitive search
 7. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%')"
 8. Always add LIMIT to prevent large result sets
@@ -219,65 +355,90 @@ CRITICAL SQL RULES:
    - LEFT JOIN master_cabang mc ON t.cabang = mc.id
 13. Select readable columns: mj.name as jenis_objek_name, ms.name as status_name, mc.name as cabang_name
 
-SAMPLE DATA EXAMPLES:
-Row 1: id=16316, pemberi_tugas="PT Asuransi Jiwa IFG", nama_objek="Rumah", jenis_objek=13, wadmpr="DKI Jakarta", wadmkk="Kota Administrasi Jakarta Selatan", wadmkc="Tebet"
-Row 2: id=17122, pemberi_tugas="PT Perkebunan Nusantara II", nama_objek="Tanah Kosong", jenis_objek=1, wadmpr="Sumatera Utara", wadmkk="Deli Serdang", wadmkc="Labuhan Deli"
-
-LOOKUP TABLES:
-- master_jenis_objek: Contains id and name for jenis_objek codes
-  Join: {self.table_name}.jenis_objek = master_jenis_objek.id
-- master_status_objek: Contains id and name for status codes
-  Join: {self.table_name}.status = master_status_objek.id  
-- master_cabang: Contains id and name for cabang codes
-  Join: {self.table_name}.cabang = master_cabang.id
-
-SQL JOIN EXAMPLES:
-- Query with all readable names:
-  SELECT t.id, t.nama_objek, t.pemberi_tugas,
-         mj.name as jenis_objek_name,
-         ms.name as status_name, 
-         mc.name as cabang_name
-  FROM {self.table_name} t 
-  LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id
-  LEFT JOIN master_status_objek ms ON t.status = ms.id
-  LEFT JOIN master_cabang mc ON t.cabang = mc.id
-
-- Grouping by status:
-  SELECT ms.name as status_name, COUNT(*) as count
-  FROM {self.table_name} t 
-  LEFT JOIN master_status_objek ms ON t.status = ms.id
-  WHERE ms.name IS NOT NULL
-  GROUP BY ms.name ORDER BY count DESC
-
-- Branch performance:
-  SELECT mc.name as branch_name, COUNT(*) as total_projects
-  FROM {self.table_name} t 
-  LEFT JOIN master_cabang mc ON t.cabang = mc.id
-  WHERE mc.name IS NOT NULL
-  GROUP BY mc.name ORDER BY total_projects DESC
-
 Generate ONLY the PostgreSQL query, no explanations."""
 
+        # Check for chart/graph requests
+        is_chart_request = bool(re.search(r"\b(grafik|chart|barchart|pie|line|scatter|histogram|graph|visualisasi data)\b", user_question, re.I))
+        is_nearby_request = bool(re.search(r"\b(terdekat|sekitar|dekat|nearby|near)\b", user_question, re.I))
         is_map_request = bool(re.search(r"\b(map|peta|visualisasi lokasi)\b", user_question, re.I))
 
-        tools = [{
-            "type": "function",
-            "name": "create_map_visualization",
-            "description": "Create a map of properties. Only use when the user explicitly requests location visualization.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "sql_query": {
-                        "type": "string",
-                        "description": "SQL query including id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk"
+        tools = [
+            {
+                "type": "function",
+                "name": "create_map_visualization",
+                "description": "Create a map of properties. Use when the user requests general location visualization.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "sql_query": {
+                            "type": "string",
+                            "description": "SQL query including id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk"
+                        },
+                        "title": { "type": "string" }
                     },
-                    "title": { "type": "string" }
+                    "required": ["sql_query", "title"],
+                    "additionalProperties": False
                 },
-                "required": ["sql_query", "title"],
-                "additionalProperties": False
+                "strict": True
             },
-            "strict": True
-        }]
+            {
+                "type": "function",
+                "name": "find_nearby_projects",
+                "description": "Find and map projects near a specific location. Use when user asks for projects near a place.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location_name": {
+                            "type": "string",
+                            "description": "Name of the location to search near (e.g., 'Setiabudi One', 'Mall Taman Anggrek')"
+                        },
+                        "radius_km": {
+                            "type": "number",
+                            "description": "Search radius in kilometers (default: 1.0)"
+                        },
+                        "title": { "type": "string" }
+                    },
+                    "required": ["location_name", "radius_km", "title"],
+                    "additionalProperties": False
+                },
+                "strict": True
+            },
+            {
+                "type": "function",
+                "name": "create_chart_visualization",
+                "description": "Create charts from data. Use when user requests graphs, charts, or data visualization.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "chart_type": {
+                            "type": "string",
+                            "enum": ["bar", "pie", "line", "scatter", "histogram", "auto"],
+                            "description": "Type of chart to create"
+                        },
+                        "sql_query": {
+                            "type": "string",
+                            "description": "SQL query to get data for the chart"
+                        },
+                        "title": { "type": "string" },
+                        "x_column": {
+                            "type": "string",
+                            "description": "Column name for x-axis (optional, can be auto-detected)"
+                        },
+                        "y_column": {
+                            "type": "string", 
+                            "description": "Column name for y-axis (optional, can be auto-detected)"
+                        },
+                        "color_column": {
+                            "type": "string",
+                            "description": "Column name for color grouping (optional)"
+                        }
+                    },
+                    "required": ["chart_type", "sql_query", "title"],
+                    "additionalProperties": False
+                },
+                "strict": True
+            }
+        ]
 
         messages = [
             {"role": "system", "content": system_prompt}
@@ -286,16 +447,21 @@ Generate ONLY the PostgreSQL query, no explanations."""
             messages.append({"role": "user", "content": geographic_context})
         messages.append({"role": "user", "content": user_question})
 
+        # Determine which function to use
+        tool_choice = "none"
+        if is_chart_request:
+            tool_choice = {"type": "function", "name": "create_chart_visualization"}
+        elif is_nearby_request and is_map_request:
+            tool_choice = {"type": "function", "name": "find_nearby_projects"}
+        elif is_map_request and not is_nearby_request:
+            tool_choice = {"type": "function", "name": "create_map_visualization"}
+
         response = self.client.responses.create(
             model="o4-mini",
             reasoning={"effort": "low"},
             input=messages,
             tools=tools,
-            tool_choice=(
-                {"type": "function", "name": "create_map_visualization"}
-                if is_map_request else
-                "none"
-            ),
+            tool_choice=tool_choice,
             max_output_tokens=500
         )
 
@@ -381,6 +547,8 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                     text_parts.append(f"Provinsi: {row['wadmpr']}")
                 if 'wadmkk' in row:
                     text_parts.append(f"Kab/Kota: {row['wadmkk']}")
+                if 'distance_km' in row:
+                    text_parts.append(f"Jarak: {row['distance_km']:.2f} km")
                 
                 hover_text.append("<br>".join(text_parts))
             
@@ -418,6 +586,385 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
             
         except Exception as e:
             return f"Error membuat visualisasi peta: {str(e)}"
+    
+    def determine_chart_type_and_data(self, user_question: str, last_query_result: pd.DataFrame = None) -> tuple:
+        """
+        Determine the best chart type and prepare data based on user request
+        Returns: (chart_type, x_column, y_column, color_column, suggested_sql)
+        """
+        user_question_lower = user_question.lower()
+        
+        # Detect specific chart type requests
+        chart_type = "auto"
+        if any(word in user_question_lower for word in ['bar', 'barchart', 'batang']):
+            chart_type = "bar"
+        elif any(word in user_question_lower for word in ['pie', 'donut', 'lingkaran']):
+            chart_type = "pie"
+        elif any(word in user_question_lower for word in ['line', 'trend', 'garis']):
+            chart_type = "line"
+        elif any(word in user_question_lower for word in ['scatter', 'titik', 'korelasi']):
+            chart_type = "scatter"
+        elif any(word in user_question_lower for word in ['histogram', 'distribusi']):
+            chart_type = "histogram"
+        
+        # If user refers to previous data
+        if any(phrase in user_question_lower for phrase in ['data tadi', 'berdasarkan data', 'dari hasil']):
+            if last_query_result is not None and len(last_query_result) > 0:
+                return self._suggest_chart_from_dataframe(last_query_result, chart_type)
+        
+        # Generate appropriate SQL based on chart type and common requests
+        suggested_sql = self._generate_chart_sql(user_question_lower, chart_type)
+        
+        return chart_type, None, None, None, suggested_sql
+    
+    def _suggest_chart_from_dataframe(self, df: pd.DataFrame, preferred_chart: str = "auto") -> tuple:
+        """Suggest best chart configuration from existing dataframe"""
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        
+        # Remove system columns
+        system_cols = ['id', 'latitude', 'longitude', 'geometry']
+        numeric_cols = [col for col in numeric_cols if col not in system_cols]
+        
+        x_col, y_col, color_col = None, None, None
+        chart_type = preferred_chart
+        
+        if len(categorical_cols) > 0 and len(numeric_cols) > 0:
+            if preferred_chart == "auto":
+                if 'count' in numeric_cols[0].lower() or len(df) < 50:
+                    chart_type = "bar"
+                else:
+                    chart_type = "scatter"
+            
+            x_col = categorical_cols[0]
+            y_col = numeric_cols[0]
+            color_col = categorical_cols[1] if len(categorical_cols) > 1 else None
+            
+        elif len(categorical_cols) > 1:
+            chart_type = "pie" if preferred_chart == "auto" else preferred_chart
+            x_col = categorical_cols[0]
+            
+        elif len(numeric_cols) > 1:
+            chart_type = "scatter" if preferred_chart == "auto" else preferred_chart
+            x_col = numeric_cols[0]
+            y_col = numeric_cols[1]
+        
+        return chart_type, x_col, y_col, color_col, None
+    
+    def _generate_chart_sql(self, user_question: str, chart_type: str) -> str:
+        """Generate SQL query for chart based on user request"""
+        
+        # Common chart SQL patterns
+        if any(word in user_question for word in ['client', 'pemberi tugas', 'klien']):
+            return f"""
+            SELECT pemberi_tugas, COUNT(*) as jumlah_proyek
+            FROM {self.table_name} t
+            WHERE pemberi_tugas IS NOT NULL
+            GROUP BY pemberi_tugas 
+            ORDER BY jumlah_proyek DESC 
+            LIMIT 10
+            """
+        
+        elif any(word in user_question for word in ['provinsi', 'province', 'wilayah']):
+            return f"""
+            SELECT wadmpr as provinsi, COUNT(*) as jumlah_proyek
+            FROM {self.table_name} t
+            WHERE wadmpr IS NOT NULL
+            GROUP BY wadmpr 
+            ORDER BY jumlah_proyek DESC 
+            LIMIT 15
+            """
+        
+        elif any(word in user_question for word in ['jenis', 'tipe', 'type', 'objek']):
+            return f"""
+            SELECT mj.name as jenis_objek, COUNT(*) as jumlah_proyek
+            FROM {self.table_name} t
+            LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id
+            WHERE mj.name IS NOT NULL
+            GROUP BY mj.name 
+            ORDER BY jumlah_proyek DESC 
+            LIMIT 10
+            """
+        
+        elif any(word in user_question for word in ['status', 'kondisi']):
+            return f"""
+            SELECT ms.name as status_proyek, COUNT(*) as jumlah_proyek
+            FROM {self.table_name} t
+            LEFT JOIN master_status_objek ms ON t.status = ms.id
+            WHERE ms.name IS NOT NULL
+            GROUP BY ms.name 
+            ORDER BY jumlah_proyek DESC
+            """
+        
+        elif any(word in user_question for word in ['cabang', 'branch', 'kantor']):
+            return f"""
+            SELECT mc.name as cabang, COUNT(*) as jumlah_proyek
+            FROM {self.table_name} t
+            LEFT JOIN master_cabang mc ON t.cabang = mc.id
+            WHERE mc.name IS NOT NULL
+            GROUP BY mc.name 
+            ORDER BY jumlah_proyek DESC 
+            LIMIT 10
+            """
+        
+        else:
+            # Default: top clients
+            return f"""
+            SELECT pemberi_tugas, COUNT(*) as jumlah_proyek
+            FROM {self.table_name} t
+            WHERE pemberi_tugas IS NOT NULL
+            GROUP BY pemberi_tugas 
+            ORDER BY jumlah_proyek DESC 
+            LIMIT 10
+            """
+    
+    def create_chart_visualization(self, data: pd.DataFrame, chart_type: str, title: str, 
+                                 x_col: str = None, y_col: str = None, color_col: str = None) -> str:
+        """Create chart visualization using Plotly Express"""
+        try:
+            if data is None or len(data) == 0:
+                return "Error: Tidak ada data untuk membuat grafik."
+            
+            # Auto-detect columns if not provided
+            if x_col is None or y_col is None:
+                chart_type, x_col, y_col, color_col, _ = self._suggest_chart_from_dataframe(data, chart_type)
+            
+            # Ensure columns exist in dataframe
+            available_cols = data.columns.tolist()
+            if x_col and x_col not in available_cols:
+                x_col = available_cols[0] if available_cols else None
+            if y_col and y_col not in available_cols:
+                numeric_cols = data.select_dtypes(include=['number']).columns.tolist()
+                y_col = numeric_cols[0] if numeric_cols else available_cols[1] if len(available_cols) > 1 else None
+            
+            fig = None
+            
+            # Create chart based on type
+            if chart_type == "bar":
+                fig = px.bar(
+                    data, 
+                    x=x_col, 
+                    y=y_col, 
+                    color=color_col,
+                    title=title,
+                    labels={x_col: x_col.replace('_', ' ').title(), 
+                           y_col: y_col.replace('_', ' ').title() if y_col else 'Count'}
+                )
+                fig.update_layout(xaxis_tickangle=-45)
+                
+            elif chart_type == "pie":
+                # For pie charts, use count data or first numeric column
+                if y_col:
+                    fig = px.pie(
+                        data, 
+                        names=x_col, 
+                        values=y_col, 
+                        title=title
+                    )
+                else:
+                    # Count occurrences
+                    pie_data = data[x_col].value_counts().reset_index()
+                    pie_data.columns = [x_col, 'count']
+                    fig = px.pie(
+                        pie_data, 
+                        names=x_col, 
+                        values='count', 
+                        title=title
+                    )
+                    
+            elif chart_type == "line":
+                fig = px.line(
+                    data, 
+                    x=x_col, 
+                    y=y_col, 
+                    color=color_col,
+                    title=title,
+                    markers=True
+                )
+                
+            elif chart_type == "scatter":
+                fig = px.scatter(
+                    data, 
+                    x=x_col, 
+                    y=y_col, 
+                    color=color_col,
+                    title=title,
+                    size_max=60
+                )
+                
+            elif chart_type == "histogram":
+                fig = px.histogram(
+                    data, 
+                    x=x_col if x_col else y_col, 
+                    color=color_col,
+                    title=title,
+                    nbins=20
+                )
+            
+            else:
+                # Default to bar chart
+                fig = px.bar(
+                    data, 
+                    x=x_col, 
+                    y=y_col, 
+                    color=color_col,
+                    title=title
+                )
+                fig.update_layout(xaxis_tickangle=-45)
+            
+            if fig:
+                # Improve chart appearance
+                fig.update_layout(
+                    height=500,
+                    showlegend=True if color_col else False,
+                    template="plotly_white",
+                    title_x=0.5,
+                    margin=dict(l=50, r=50, t=80, b=100)
+                )
+                
+                # Display chart
+                st.plotly_chart(fig, use_container_width=True)
+                
+                return f"✅ Grafik {chart_type} berhasil ditampilkan dengan {len(data)} data points."
+            else:
+                return "Error: Gagal membuat grafik."
+                
+        except Exception as e:
+            return f"Error membuat grafik: {str(e)}"
+        
+    def find_nearby_projects(self, location_name: str, radius_km: float, title: str, db_connection) -> str:
+        """Find projects near a specific location using geocoding"""
+        try:
+            if not self.geocode_service:
+                return "Error: Layanan geocoding tidak tersedia. Silakan tambahkan Google Maps API key."
+            
+            # Geocode the location
+            with st.spinner(f"Mencari koordinat untuk '{location_name}'..."):
+                lat, lng, formatted_address = self.geocode_service.geocode_address(location_name)
+            
+            if lat is None or lng is None:
+                return f"Error: Tidak dapat menemukan koordinat untuk lokasi '{location_name}'. Silakan coba dengan nama lokasi yang lebih spesifik."
+            
+            st.success(f"📍 Lokasi ditemukan: {formatted_address}")
+            st.info(f"Koordinat: {lat:.6f}, {lng:.6f}")
+            
+            # Query nearby projects using Haversine formula
+            sql_query = f"""
+            SELECT 
+                t.id,
+                t.nama_objek,
+                t.pemberi_tugas,
+                t.latitude,
+                t.longitude,
+                t.wadmpr,
+                t.wadmkk,
+                t.wadmkc,
+                mj.name as jenis_objek_name,
+                ms.name as status_name,
+                mc.name as cabang_name,
+                (6371 * acos(
+                    cos(radians({lat})) * cos(radians(t.latitude)) * 
+                    cos(radians(t.longitude) - radians({lng})) + 
+                    sin(radians({lat})) * sin(radians(t.latitude))
+                )) as distance_km
+            FROM {self.table_name} t
+            LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id
+            LEFT JOIN master_status_objek ms ON t.status = ms.id
+            LEFT JOIN master_cabang mc ON t.cabang = mc.id
+            WHERE 
+                t.latitude IS NOT NULL 
+                AND t.longitude IS NOT NULL
+                AND (6371 * acos(
+                    cos(radians({lat})) * cos(radians(t.latitude)) * 
+                    cos(radians(t.longitude) - radians({lng})) + 
+                    sin(radians({lat})) * sin(radians(t.latitude))
+                )) <= {radius_km}
+            ORDER BY distance_km ASC
+            LIMIT 50
+            """
+            
+            # Execute query
+            with st.spinner(f"Mencari proyek dalam radius {radius_km} km..."):
+                result_df, query_msg = db_connection.execute_query(sql_query)
+            
+            if result_df is not None and len(result_df) > 0:
+                # Add reference point to map
+                reference_point = pd.DataFrame({
+                    'latitude': [lat],
+                    'longitude': [lng],
+                    'id': ['REF'],
+                    'nama_objek': [location_name],
+                    'pemberi_tugas': ['Reference Point'],
+                    'wadmpr': [''],
+                    'wadmkk': [''],
+                    'distance_km': [0.0]
+                })
+                
+                # Create enhanced map with reference point
+                fig = go.Figure()
+                
+                # Add reference point (target location)
+                fig.add_trace(go.Scattermapbox(
+                    lat=[lat],
+                    lon=[lng],
+                    mode='markers',
+                    marker=dict(size=15, color='blue', symbol='star'),
+                    text=[f"📍 {location_name}<br>{formatted_address}"],
+                    hovertemplate='%{text}<extra></extra>',
+                    name='Target Location'
+                ))
+                
+                # Add project markers
+                hover_text = []
+                for idx, row in result_df.iterrows():
+                    text_parts = [
+                        f"ID: {row['id']}",
+                        f"Objek: {row['nama_objek']}",
+                        f"Client: {row['pemberi_tugas']}",
+                        f"Provinsi: {row['wadmpr']}",
+                        f"Kab/Kota: {row['wadmkk']}",
+                        f"Jarak: {row['distance_km']:.2f} km"
+                    ]
+                    hover_text.append("<br>".join(text_parts))
+                
+                fig.add_trace(go.Scattermapbox(
+                    lat=result_df['latitude'],
+                    lon=result_df['longitude'],
+                    mode='markers',
+                    marker=dict(size=8, color='red'),
+                    text=hover_text,
+                    hovertemplate='%{text}<extra></extra>',
+                    name='Properties'
+                ))
+                
+                # Map layout centered on target location
+                fig.update_layout(
+                    mapbox=dict(
+                        style="open-street-map",
+                        center=dict(lat=lat, lon=lng),
+                        zoom=12
+                    ),
+                    height=500,
+                    margin=dict(l=0, r=0, t=30, b=0),
+                    title=f"{title} - {len(result_df)} proyek dalam radius {radius_km} km dari {location_name}"
+                )
+                
+                # Display map
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Show results table
+                with st.expander("📊 Detail Proyek Terdekat", expanded=False):
+                    st.dataframe(result_df[['id', 'nama_objek', 'pemberi_tugas', 'jenis_objek_name', 
+                                          'wadmpr', 'wadmkk', 'distance_km']].round(2), 
+                               use_container_width=True)
+                
+                return f"✅ Ditemukan {len(result_df)} proyek dalam radius {radius_km} km dari {location_name}. Proyek terdekat berjarak {result_df['distance_km'].min():.2f} km."
+            
+            else:
+                return f"❌ Tidak ada proyek yang ditemukan dalam radius {radius_km} km dari {location_name}."
+            
+        except Exception as e:
+            return f"Error mencari proyek terdekat: {str(e)}"
 
     def direct_chat(self, user_question: str) -> str:   
         """Direct chat using GPT-4.1-mini for non-query questions"""
@@ -511,6 +1058,17 @@ def initialize_database():
             return False
     
     return True
+
+def initialize_geocode_service():
+    """Initialize geocoding service"""
+    try:
+        google_api_key = st.secrets["google"]["api_key"]
+        if 'geocode_service' not in st.session_state:
+            st.session_state.geocode_service = GeocodeService(google_api_key)
+        return st.session_state.geocode_service
+    except KeyError:
+        st.warning("Google Maps API key tidak ditemukan. Fitur pencarian lokasi tidak tersedia.")
+        return None
 
 def render_geographic_filter():
     """Render geographic filtering interface"""
@@ -635,6 +1193,9 @@ def render_ai_chat():
     if not initialize_database():
         return
     
+    # Initialize geocoding service
+    geocode_service = initialize_geocode_service()
+    
     # Get API key
     try:
         api_key = st.secrets["openai"]["api_key"]
@@ -648,9 +1209,9 @@ def render_ai_chat():
         st.error("Table name not found in secrets.toml")
         return
     
-    # Initialize AI chat
+    # Initialize AI chat with geocoding service
     if 'ai_chat' not in st.session_state:
-        st.session_state.ai_chat = RHRAIChat(api_key, table_name)
+        st.session_state.ai_chat = RHRAIChat(api_key, table_name, geocode_service)
     
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
@@ -662,6 +1223,8 @@ You can ask me questions like:
 - "Who are our top 5 clients?"
 - "Show me some recent land appraisals"
 - "What types of properties do we appraise most?"
+- **NEW:** "Buatkan map proyek terdekat dari Setiabudi One radius 1km"
+- **NEW:** "Tampilkan proyek sekitar Mall Taman Anggrek dalam radius 500m"
 
 What would you like to know about your projects?"""
         
@@ -669,6 +1232,12 @@ What would you like to know about your projects?"""
             "role": "assistant",
             "content": welcome_msg
         })
+    
+    # Display geocoding service status
+    if geocode_service:
+        st.success("🌍 Layanan pencarian lokasi aktif")
+    else:
+        st.warning("⚠️ Layanan pencarian lokasi tidak aktif - tambahkan Google Maps API key untuk menggunakan fitur pencarian terdekat")
     
     # Display geographic context if available
     if hasattr(st.session_state, 'geographic_filters') and any(st.session_state.geographic_filters.values()):
@@ -757,6 +1326,65 @@ Peta menampilkan lokasi properti berdasarkan data yang tersedia dengan koordinat
                                     error_msg = f"Tidak dapat membuat peta: {query_msg}"
                                     st.error(error_msg)
                                     final_response = error_msg
+                            
+                            elif output_item.name == "create_chart_visualization":
+                                # Parse function arguments
+                                args = json.loads(output_item.arguments)
+                                chart_type = args.get("chart_type", "auto")
+                                sql_query = args.get("sql_query")
+                                chart_title = args.get("title", "Data Visualization")
+                                x_col = args.get("x_column")
+                                y_col = args.get("y_column") 
+                                color_col = args.get("color_column")
+                                
+                                # Execute the SQL query
+                                result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+                                
+                                if result_df is not None and len(result_df) > 0:
+                                    # Create chart visualization
+                                    chart_result = st.session_state.ai_chat.create_chart_visualization(
+                                        result_df, chart_type, chart_title, x_col, y_col, color_col
+                                    )
+                                    
+                                    # Show query details in expandable section
+                                    with st.expander("📊 Data & Query Details", expanded=False):
+                                        st.code(sql_query, language="sql")
+                                        st.dataframe(result_df, use_container_width=True)
+                                    
+                                    # Store last query result for future reference
+                                    st.session_state.last_query_result = result_df
+                                    
+                                    # Generate response about the chart
+                                    chart_response = f"""Saya telah membuat visualisasi grafik untuk permintaan Anda.
+
+{chart_result}
+
+Grafik menampilkan data berdasarkan query yang dijalankan."""
+                                    
+                                    st.markdown("---")
+                                    st.markdown(chart_response)
+                                    final_response = chart_response
+                                else:
+                                    error_msg = f"Tidak dapat membuat grafik: {query_msg}"
+                                    st.error(error_msg)
+                                    final_response = error_msg
+                            
+                            elif output_item.name == "find_nearby_projects":
+                                # Parse function arguments
+                                args = json.loads(output_item.arguments)
+                                location_name = args.get("location_name")
+                                radius_km = args.get("radius_km", 1.0)
+                                map_title = args.get("title", f"Proyek Terdekat dari {location_name}")
+                                
+                                # Find nearby projects
+                                nearby_result = st.session_state.ai_chat.find_nearby_projects(
+                                    location_name, radius_km, map_title, st.session_state.db_connection
+                                )
+                                
+                                st.markdown("---")
+                                st.markdown(nearby_result)
+                                final_response = nearby_result
+                            
                             break
                     
                     # If no function was called, treat as regular SQL query
@@ -774,14 +1402,14 @@ Peta menampilkan lokasi properti berdasarkan data yang tersedia dengan koordinat
                                         st.code(sql_query, language="sql")
                                         st.dataframe(result_df, use_container_width=True)
                                     
+                                    # Store last query result for future reference
+                                    st.session_state.last_query_result = result_df
+                                    
                                     # Step 3: Format response using GPT-4.1-mini
                                     formatted_response = st.session_state.ai_chat.format_response(
                                         prompt, result_df, sql_query
                                     )
                                     
-                                    # # Display the formatted response
-                                    # st.markdown("---")
-                                    # st.markdown(formatted_response)
                                     final_response = formatted_response
                                     
                                 else:
@@ -796,7 +1424,6 @@ Peta menampilkan lokasi properti berdasarkan data yang tersedia dengan koordinat
                         else:
                             # If no valid SQL generated, use GPT-4.1-mini directly
                             direct_response = st.session_state.ai_chat.direct_chat(prompt)
-                            st.markdown(direct_response)
                             final_response = direct_response
                 
                 # Add assistant response to history
@@ -838,10 +1465,61 @@ Peta menampilkan lokasi properti berdasarkan data yang tersedia dengan koordinat
             st.rerun()
     
     with col4:
-        if st.button("Show Map", use_container_width=True):
-            quick_prompt = "Buatkan peta untuk menampilkan lokasi semua properti"
+        if st.button("Show Chart", use_container_width=True):
+            quick_prompt = "Buatkan grafik pemberi tugas terbanyak"
             st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
             st.rerun()
+    
+    # NEW: Chart-based quick actions
+    st.markdown("**📊 Chart Quick Actions:**")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("Client Chart", use_container_width=True):
+            quick_prompt = "Tampilkan barchart klien terbanyak"
+            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+            st.rerun()
+    
+    with col2:
+        if st.button("Province Pie", use_container_width=True):
+            quick_prompt = "Buatkan pie chart berdasarkan provinsi"
+            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+            st.rerun()
+    
+    with col3:
+        if st.button("Property Types", use_container_width=True):
+            quick_prompt = "Tampilkan grafik jenis properti"
+            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+            st.rerun()
+    
+    with col4:
+        if st.button("Status Chart", use_container_width=True):
+            quick_prompt = "Buatkan barchart status proyek"
+            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+            st.rerun()
+    
+    # NEW: Location-based quick actions
+    if geocode_service:
+        st.markdown("**📍 Location-based Quick Actions:**")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("Near Plaza Indonesia", use_container_width=True):
+                quick_prompt = "Buatkan map proyek terdekat dari Plaza Indonesia radius 2km"
+                st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+                st.rerun()
+        
+        with col2:
+            if st.button("Near Senayan City", use_container_width=True):
+                quick_prompt = "Tampilkan proyek sekitar Senayan City dalam radius 1.5km"
+                st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+                st.rerun()
+        
+        with col3:
+            if st.button("Near Thamrin", use_container_width=True):
+                quick_prompt = "Cari proyek terdekat dari Thamrin Jakarta radius 1km"
+                st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+                st.rerun()
     
     # Chat management
     st.markdown("---")
@@ -904,6 +1582,13 @@ def main():
         st.sidebar.success("Database Connected")
     else:
         st.sidebar.error("Database Disconnected")
+    
+    # Geocoding service status
+    try:
+        google_api_key = st.secrets["google"]["api_key"]
+        st.sidebar.success("🌍 Geocoding Service Available")
+    except KeyError:
+        st.sidebar.warning("⚠️ Geocoding Service Unavailable")
     
     # Geographic filters status
     if hasattr(st.session_state, 'geographic_filters') and any(st.session_state.geographic_filters.values()):
