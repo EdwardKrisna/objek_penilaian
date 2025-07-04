@@ -1440,86 +1440,86 @@ Grafik menampilkan data berdasarkan query yang dijalankan."""
                     "content": error_msg
                 })
     
-    # Quick action buttons
-    st.markdown("---")
-    st.markdown("**Quick Questions:**")
+    # # Quick action buttons
+    # st.markdown("---")
+    # st.markdown("**Quick Questions:**")
     
-    col1, col2, col3, col4 = st.columns(4)
+    # col1, col2, col3, col4 = st.columns(4)
     
-    with col1:
-        if st.button("Project Count", use_container_width=True):
-            quick_prompt = "How many total projects do we have?"
-            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-            st.rerun()
+    # with col1:
+    #     if st.button("Project Count", use_container_width=True):
+    #         quick_prompt = "How many total projects do we have?"
+    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+    #         st.rerun()
     
-    with col2:
-        if st.button("Top Clients", use_container_width=True):
-            quick_prompt = "Who are our top 5 clients by number of projects?"
-            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-            st.rerun()
+    # with col2:
+    #     if st.button("Top Clients", use_container_width=True):
+    #         quick_prompt = "Who are our top 5 clients by number of projects?"
+    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+    #         st.rerun()
     
-    with col3:
-        if st.button("Property Types", use_container_width=True):
-            quick_prompt = "What are the most common property types we appraise?"
-            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-            st.rerun()
+    # with col3:
+    #     if st.button("Property Types", use_container_width=True):
+    #         quick_prompt = "What are the most common property types we appraise?"
+    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+    #         st.rerun()
     
-    with col4:
-        if st.button("Show Chart", use_container_width=True):
-            quick_prompt = "Buatkan grafik pemberi tugas terbanyak"
-            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-            st.rerun()
+    # with col4:
+    #     if st.button("Show Chart", use_container_width=True):
+    #         quick_prompt = "Buatkan grafik pemberi tugas terbanyak"
+    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+    #         st.rerun()
     
-    # NEW: Chart-based quick actions
-    st.markdown("**📊 Chart Quick Actions:**")
-    col1, col2, col3, col4 = st.columns(4)
+    # # NEW: Chart-based quick actions
+    # st.markdown("**📊 Chart Quick Actions:**")
+    # col1, col2, col3, col4 = st.columns(4)
     
-    with col1:
-        if st.button("Client Chart", use_container_width=True):
-            quick_prompt = "Tampilkan barchart klien terbanyak"
-            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-            st.rerun()
+    # with col1:
+    #     if st.button("Client Chart", use_container_width=True):
+    #         quick_prompt = "Tampilkan barchart klien terbanyak"
+    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+    #         st.rerun()
     
-    with col2:
-        if st.button("Province Pie", use_container_width=True):
-            quick_prompt = "Buatkan pie chart berdasarkan provinsi"
-            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-            st.rerun()
+    # with col2:
+    #     if st.button("Province Pie", use_container_width=True):
+    #         quick_prompt = "Buatkan pie chart berdasarkan provinsi"
+    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+    #         st.rerun()
     
-    with col3:
-        if st.button("Property Types", use_container_width=True):
-            quick_prompt = "Tampilkan grafik jenis properti"
-            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-            st.rerun()
+    # with col3:
+    #     if st.button("Property Types", use_container_width=True):
+    #         quick_prompt = "Tampilkan grafik jenis properti"
+    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+    #         st.rerun()
     
-    with col4:
-        if st.button("Status Chart", use_container_width=True):
-            quick_prompt = "Buatkan barchart status proyek"
-            st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-            st.rerun()
+    # with col4:
+    #     if st.button("Status Chart", use_container_width=True):
+    #         quick_prompt = "Buatkan barchart status proyek"
+    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+    #         st.rerun()
     
-    # NEW: Location-based quick actions
-    if geocode_service:
-        st.markdown("**📍 Location-based Quick Actions:**")
-        col1, col2, col3 = st.columns(3)
+    # # NEW: Location-based quick actions
+    # if geocode_service:
+    #     st.markdown("**📍 Location-based Quick Actions:**")
+    #     col1, col2, col3 = st.columns(3)
         
-        with col1:
-            if st.button("Near Plaza Indonesia", use_container_width=True):
-                quick_prompt = "Buatkan map proyek terdekat dari Plaza Indonesia radius 2km"
-                st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-                st.rerun()
+    #     with col1:
+    #         if st.button("Near Plaza Indonesia", use_container_width=True):
+    #             quick_prompt = "Buatkan map proyek terdekat dari Plaza Indonesia radius 2km"
+    #             st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+    #             st.rerun()
         
-        with col2:
-            if st.button("Near Senayan City", use_container_width=True):
-                quick_prompt = "Tampilkan proyek sekitar Senayan City dalam radius 1.5km"
-                st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-                st.rerun()
+    #     with col2:
+    #         if st.button("Near Senayan City", use_container_width=True):
+    #             quick_prompt = "Tampilkan proyek sekitar Senayan City dalam radius 1.5km"
+    #             st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+    #             st.rerun()
         
-        with col3:
-            if st.button("Near Thamrin", use_container_width=True):
-                quick_prompt = "Cari proyek terdekat dari Thamrin Jakarta radius 1km"
-                st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-                st.rerun()
+    #     with col3:
+    #         if st.button("Near Thamrin", use_container_width=True):
+    #             quick_prompt = "Cari proyek terdekat dari Thamrin Jakarta radius 1km"
+    #             st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
+    #             st.rerun()
     
     # Chat management
     st.markdown("---")
