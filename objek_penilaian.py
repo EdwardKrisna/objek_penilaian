@@ -11,7 +11,7 @@ import requests
 import math
 import asyncio
 from agents import Agent, function_tool, Runner, set_default_openai_key
-from agents.memory import InMemoryMemory
+# from agents.memory import InMemoryMemory
 
 warnings.filterwarnings('ignore')
 
@@ -450,8 +450,8 @@ def initialize_agents():
         st.error("Table name not found in secrets.toml")
         return None
     
-    # Create shared memory instance
-    memory = InMemoryMemory()
+    # # Create shared memory instance
+    # memory = InMemoryMemory()
     
     # SQL Agent
     sql_agent = Agent(
@@ -507,7 +507,7 @@ EXAMPLES:
 
 Return ONLY the PostgreSQL query, no explanations.""",
         model="o4-mini",
-        memory=memory
+        # memory=memory
     )
     
     # Orchestrator Agent with shared memory
@@ -560,7 +560,7 @@ User: "buatkan petanya"
 
 CRITICAL: When user asks for maps, ALWAYS use the create_map_visualization tool, not sql_query_builder.""",
         model="gpt-4.1-mini",
-        memory=memory,  # Shared memory with SQL agent
+        # memory=memory,  # Shared memory with SQL agent
         tools=[
             sql_agent.as_tool(
                 tool_name="sql_query_builder",
