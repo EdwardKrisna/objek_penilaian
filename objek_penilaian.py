@@ -11,6 +11,8 @@ import requests
 import math
 import asyncio
 from agents import Agent, function_tool, Runner, set_default_openai_key
+from openai.types.responses import ResponseTextDeltaEvent
+
 
 warnings.filterwarnings('ignore')
 
@@ -726,8 +728,20 @@ Please use the conversation context to understand what the user is referring to.
 - If they asked about "client terbesar" and now say "detail yang pertama", show details of the top client
 - Connect follow-up questions to previous context appropriately"""
         
+        # Create empty container for streaming text
+        response_container = st.empty()
+        full_response = ""
+
+        # Run streaming
         result = Runner.run_streamed(orchestrator_agent, input=enhanced_query)
-        return result.final_output
+        async for event in result.stream_events():
+            if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
+                full_response += event.data.delta
+                response_container.markdown(full_response + "▌")  # Show cursor
+
+        # Remove cursor and return final response
+        response_container.markdown(full_response)
+        return full_response
     except Exception as e:
         return f"Error processing query: {str(e)}"
 
