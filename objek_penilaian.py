@@ -707,7 +707,6 @@ def create_visualization_agent() -> Agent[RHRContext]:
         Provide clear, informative visualizations with proper titles and labeling.""",  # Your existing instructions
         model=model,
         model_settings=ModelSettings(  # Use ModelSettings object, not dict
-            temperature=settings["temperature"]
         ),
         tools=[create_map_visualization, create_chart_visualization, find_nearby_projects]
     )
