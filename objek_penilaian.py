@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
+from openai import OpenAI
 import json
 import traceback
 from datetime import datetime
@@ -433,6 +434,14 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
 
 def initialize_agents():
     """Initialize the agents"""
+    
+    # Get OpenAI API key
+    try:
+        api_key = st.secrets["openai"]["api_key"]
+        client = OpenAI(api_key=api_key)
+    except KeyError:
+        st.error("OpenAI API key not found in secrets.toml")
+        return None, None
     
     # Get table name from secrets
     try:
