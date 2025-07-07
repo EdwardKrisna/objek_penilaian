@@ -206,15 +206,26 @@ def create_map_visualization(sql_query: str, title: str = "Property Locations") 
             
             hover_text.append("<br>".join(text_parts))
         
-        # Add markers
+        # Determine name based on data content
+        property_count = len(result_df)
+
+        # Try to detect location from data
+        location_hint = ""
+        if 'wadmkk' in result_df.columns and not result_df['wadmkk'].isna().all():
+            common_city = result_df['wadmkk'].mode().iloc[0] if len(result_df['wadmkk'].mode()) > 0 else ""
+            if common_city and len(result_df['wadmkk'].unique()) <= 3:  # If mostly same city
+                location_hint = f" in {common_city}"
+
+        dynamic_name = f"Properties ({property_count}){location_hint}"
+
         fig.add_trace(go.Scattermapbox(
-            lat=map_df['latitude'],
-            lon=map_df['longitude'],
+            lat=result_df['latitude'],
+            lon=result_df['longitude'],
             mode='markers',
             marker=dict(size=8, color='red'),
             text=hover_text,
             hovertemplate='%{text}<extra></extra>',
-            name='Properties'
+            name=dynamic_name  # "Properties (110) in Bandung"
         ))
         
         # Calculate center
@@ -394,6 +405,18 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
                 ]
                 hover_text.append("<br>".join(text_parts))
             
+            # Determine name based on data content
+            property_count = len(result_df)
+
+            # Try to detect location from data
+            location_hint = ""
+            if 'wadmkk' in result_df.columns and not result_df['wadmkk'].isna().all():
+                common_city = result_df['wadmkk'].mode().iloc[0] if len(result_df['wadmkk'].mode()) > 0 else ""
+                if common_city and len(result_df['wadmkk'].unique()) <= 3:  # If mostly same city
+                    location_hint = f" in {common_city}"
+
+            dynamic_name = f"Properties ({property_count}){location_hint}"
+
             fig.add_trace(go.Scattermapbox(
                 lat=result_df['latitude'],
                 lon=result_df['longitude'],
@@ -401,7 +424,7 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
                 marker=dict(size=8, color='red'),
                 text=hover_text,
                 hovertemplate='%{text}<extra></extra>',
-                name='Properties'
+                name=dynamic_name  # "Properties (110) in Bandung"
             ))
             
             # Map layout centered on target location
