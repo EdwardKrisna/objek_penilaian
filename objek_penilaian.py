@@ -870,17 +870,19 @@ async def run_agent_query(user_input: str, context: RHRContext):
         settings = get_agent_settings()
         manager_agent = create_manager_agent()
 
-        # Try with positional arguments only
+        # Try without context first to see if that's the issue
         result = await Runner.run(
-            manager_agent,                    # agent (positional)
-            user_input,                       # input (positional)
-            context=context,                  # context (keyword)
-            max_turns=settings["max_turns"]   # max_turns (keyword)
+            manager_agent,
+            user_input
+            # No context for now
         )
+
         return result.final_output
 
     except Exception as e:
-        return f"Error running agent system: {str(e)}"
+        import traceback
+        full_error = traceback.format_exc()
+        return f"Error running agent system: {str(e)}\n\nFull traceback:\n{full_error}"
 
 
 def render_agent_chat():
