@@ -874,8 +874,7 @@ async def run_agent_query(user_input: str, context: RHRContext):
         result = await Runner.run(
             manager_agent,
             user_input,
-            context,
-            max_turns=settings["max_turns"]
+            context
         )
         return result.final_output
 
