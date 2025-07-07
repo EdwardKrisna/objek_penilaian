@@ -726,7 +726,7 @@ Please use the conversation context to understand what the user is referring to.
 - If they asked about "client terbesar" and now say "detail yang pertama", show details of the top client
 - Connect follow-up questions to previous context appropriately"""
         
-        result = await Runner.run(orchestrator_agent, input=enhanced_query)
+        result = await Runner.run_streamed(orchestrator_agent, input=enhanced_query)
         return result.final_output
     except Exception as e:
         return f"Error processing query: {str(e)}"
