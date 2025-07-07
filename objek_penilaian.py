@@ -584,7 +584,7 @@ CRITICAL:
 - When user asks for maps, ALWAYS use create_map_visualization tool
 - Use conversation context to determine the right location/filter for maps and queries
 - If context is unclear, ask for clarification rather than guessing""",
-        model="gpt-4.1-mini",
+        model="gpt-4.1",
         tools=[
             sql_agent.as_tool(
                 tool_name="sql_query_builder",
