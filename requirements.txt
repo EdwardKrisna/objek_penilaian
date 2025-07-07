@@ -1,24 +1,10 @@
-# Core Streamlit and data processing
 streamlit>=1.28.0
 pandas>=2.0.0
-numpy>=1.24.0
-
-# Database connectivity
 sqlalchemy>=1.4.0,<2.1.0
 psycopg2-binary>=2.9.0
-
-# OpenAI Agents Framework (NEW)
-openai-agents
-openai
-
-# Data visualization
+openai>=1.0.0
 plotly>=5.15.0
 folium>=0.14.0
 streamlit-folium>=0.13.0
-
-# API requests and geocoding
-requests>=2.28.0
-
-# Type hints and data validation
-pydantic>=2.0.0
-typing-extensions>=4.5.0
+numpy>=1.24.0
+requests>=2.31.0
