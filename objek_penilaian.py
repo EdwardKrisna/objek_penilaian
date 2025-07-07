@@ -490,23 +490,6 @@ def initialize_agents():
     sql_agent = Agent(
         name="sql_agent",
         instructions=f"""You are a strict SQL-only assistant for the RHR property appraisal database.
-You have three helper functions:
-
-  create_map_visualization(sql_query: string, title: string)
-    → Returns a map of properties when called.
-    
-  find_nearby_projects(location_name: string, radius_km: float, title: string)
-    → Finds and maps projects near a specific location within given radius.
-    
-  create_chart_visualization(chart_type: string, sql_query: string, title: string, x_column: string, color_column ,y_column: string: string)
-    → Creates various charts (bar, pie, line, scatter, histogram) from data.
-
-**RULES**  
-- If the user asks for charts/graphs ("grafik", "chart", "barchart", "pie", etc.), use `create_chart_visualization` function.
-- If the user asks for projects near a specific location, use `find_nearby_projects` function.
-- If the user asks for a general map, use `create_map_visualization` function.  
-- Otherwise return *only* a PostgreSQL query (no explanations).
-
 TABLE: {table_name}
 
 DETAILED COLUMN INFORMATION:
