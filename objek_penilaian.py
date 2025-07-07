@@ -674,7 +674,6 @@ def create_sql_agent() -> Agent[RHRContext]:
         Always respond with a SQLQueryRequest object containing the optimized query.""",  # Your existing instructions
         model=model,
         model_settings=ModelSettings(  # Use ModelSettings object, not dict
-            temperature=settings["temperature"]
         ),
         tools=[execute_sql_query],
         output_type=SQLQueryRequest
@@ -738,7 +737,6 @@ def create_explanation_agent() -> Agent[RHRContext]:
         Focus on business value and practical insights rather than technical details.""",  # Your existing instructions
         model=model,
         model_settings=ModelSettings(  # Use ModelSettings object, not dict
-            temperature=settings["temperature"]
         )
     )
 
