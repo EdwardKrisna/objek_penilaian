@@ -433,8 +433,8 @@ Property Information:
 
 Project Information:
 - penilaian_ke (text): How many times the project taken (e.g., "1" = once , "2" = twice)
-- penugasan_text (text): Project task type (e.g., "Penilaian Aset")
-- tujuan_text (text): Project objective/purpose (e.g., "Penjaminan Hutang")
+- penugasan_text (text): Project task type or 'Penugasan Penilaian' (e.g., "Penilaian Aset")
+- tujuan_text (text): Project objective/purpose or 'Tujuan Penilaian' (e.g., "Penjaminan Hutang")
 
 Status & Management:
 - status_text (text): Project status (e.g., "Inspeksi", "Penunjukan PIC")
