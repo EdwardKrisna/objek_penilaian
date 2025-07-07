@@ -431,6 +431,20 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
     except Exception as e:
         return f"Error finding nearby projects: {str(e)}"
 
+@function_tool
+def execute_sql_query(sql_query: str) -> str:
+    """Execute SQL query and return formatted results"""
+    try:
+        result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+        
+        if result_df is not None and len(result_df) > 0:
+            # Format results nicely
+            return f"Query hasil: {result_df.to_string()}"
+        else:
+            return f"No results: {query_msg}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
 def initialize_agents():
     """Initialize the agents"""
     
@@ -549,17 +563,17 @@ CORE CAPABILITIES:
 - Remember conversation context
 
 DECISION LOGIC - VERY IMPORTANT:
-1. If user asks for "peta" or "map" (like "buatkan peta", "tampilkan peta", "peta proyek bandung"):
-   -> ALWAYS use create_map_visualization tool with appropriate SQL query
+1. For simple data questions (berapa, siapa, apa):
+   -> First use sql_query_builder to get SQL, then use execute_sql_query to run it
    
-2. If user asks for "grafik" or "chart":
+2. If user asks for "peta" or "map":
+   -> use create_map_visualization tool
+   
+3. If user asks for "grafik" or "chart":
    -> use create_chart_visualization tool
 
-3. If user asks for "terdekat" or "nearby":
+4. If user asks for "terdekat" or "nearby":
    -> use find_nearby_projects tool
-
-4. For simple data questions (berapa, siapa, apa):
-   -> use sql_query_builder tool
 
 CONVERSATION MEMORY RULES:
 - Pay attention to CONVERSATION CONTEXT provided in the input
@@ -583,12 +597,13 @@ CRITICAL:
 - When user asks for maps, ALWAYS use create_map_visualization tool
 - Use conversation context to determine the right location/filter for maps and queries
 - If context is unclear, ask for clarification rather than guessing""",
-        model="gpt-4.1-nano",
+        model="gpt-4.1-mini",
         tools=[
             sql_agent.as_tool(
                 tool_name="sql_query_builder",
                 tool_description="Build SQL queries to retrieve data from the RHR property database. Use for counting, listing, or getting raw data."
             ),
+            execute_sql_query,
             create_map_visualization,
             create_chart_visualization,
             find_nearby_projects
