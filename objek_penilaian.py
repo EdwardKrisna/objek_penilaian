@@ -872,9 +872,10 @@ async def run_agent_query(user_input: str, context: RHRContext):
 
         # Try with positional arguments only
         result = await Runner.run(
-            manager_agent,
-            user_input,
-            context
+            manager_agent,                    # agent (positional)
+            user_input,                       # input (positional)
+            context=context,                  # context (keyword)
+            max_turns=settings["max_turns"]   # max_turns (keyword)
         )
         return result.final_output
 
