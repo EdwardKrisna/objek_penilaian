@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
-from openai import OpenAI
 import json
 import traceback
 from datetime import datetime
@@ -11,7 +10,7 @@ import plotly.express as px
 import requests
 import math
 import asyncio
-from agents import Agent, function_tool, Runner
+from agents import Agent, function_tool, Runner, set_default_openai_key
 
 warnings.filterwarnings('ignore')
 
@@ -435,10 +434,10 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
 def initialize_agents():
     """Initialize the agents"""
     
-    # Get OpenAI API key
+    # Set OpenAI API key for agents
     try:
-        api_key = st.secrets["openai"]["api_key"]
-        client = OpenAI(api_key=api_key)
+        openai_api_key = st.secrets["openai"]["api_key"]
+        set_default_openai_key(openai_api_key)
     except KeyError:
         st.error("OpenAI API key not found in secrets.toml")
         return None, None
