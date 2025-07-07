@@ -11,7 +11,6 @@ import requests
 import math
 import asyncio
 from agents import Agent, function_tool, Runner, set_default_openai_key
-# from agents.memory import InMemoryMemory
 
 warnings.filterwarnings('ignore')
 
@@ -433,7 +432,7 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
         return f"Error finding nearby projects: {str(e)}"
 
 def initialize_agents():
-    """Initialize the agents with shared memory - call only once at startup"""
+    """Initialize the agents"""
     
     # Set OpenAI API key for agents
     try:
@@ -441,17 +440,14 @@ def initialize_agents():
         set_default_openai_key(openai_api_key)
     except KeyError:
         st.error("OpenAI API key not found in secrets.toml")
-        return None
+        return None, None
     
     # Get table name from secrets
     try:
         table_name = st.secrets["database"]["table_name"]
     except KeyError:
         st.error("Table name not found in secrets.toml")
-        return None
-    
-    # # Create shared memory instance
-    # memory = InMemoryMemory()
+        return None, None
     
     # SQL Agent
     sql_agent = Agent(
@@ -506,20 +502,20 @@ EXAMPLES:
 - "peta proyek bandung" -> SELECT id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk FROM {table_name} WHERE wadmkk ILIKE '%bandung%' AND latitude IS NOT NULL AND longitude IS NOT NULL
 
 Return ONLY the PostgreSQL query, no explanations.""",
-        model="o4-mini",
-        # memory=memory
+        model="o4-mini"
     )
     
-    # Orchestrator Agent with shared memory
+    # Orchestrator Agent
     orchestrator_agent = Agent(
         name="orchestrator_agent",
-        instructions="""You are RHR's AI assistant for property appraisal data analysis.
+        instructions="""You are RHR's AI assistant for property appraisal data analysis with conversation memory.
 
-You help users with:
+CORE CAPABILITIES:
 - Data queries and analysis
 - Map visualizations 
 - Chart creation
 - Finding nearby projects
+- Remember conversation context
 
 DECISION LOGIC - VERY IMPORTANT:
 1. If user asks for "peta" or "map" (like "buatkan peta", "tampilkan peta", "peta proyek bandung"):
@@ -534,33 +530,29 @@ DECISION LOGIC - VERY IMPORTANT:
 4. For simple data questions (berapa, siapa, apa):
    -> use sql_query_builder tool
 
-CONTEXT HANDLING:
-- You have memory of previous conversations in this session
-- If user says "buatkan petanya" after asking "berapa proyek di bandung", 
-  create map for Bandung projects using the context from previous question
-- Connect follow-up requests to previous context automatically
-- Remember location names, counts, and previous queries
+CONVERSATION MEMORY RULES:
+- Pay attention to CONVERSATION CONTEXT provided in the input
+- Connect current requests to previous context
+- When user says referential words like "itu", "tersebut", "petanya", "yang tadi", refer back to conversation context
+- If user asks follow-up questions, use the same location/client/topic from previous context
+
+COMMON PATTERNS:
+- "berapa proyek di [location]" followed by "buatkan petanya" → create map for same location
+- "siapa client terbesar" followed by "detail yang pertama" → show details of top client
+- "proyek di jakarta" followed by "yang di jakarta selatan" → filter Jakarta projects to Jakarta Selatan
 
 RESPONSE STYLE:
 - Always respond in friendly Bahasa Indonesia
+- Acknowledge when you're using previous context: "Berdasarkan pertanyaan sebelumnya tentang..."
 - Provide business insights, not just technical details
 - Be conversational and helpful
-- When creating maps/charts, explain what you're showing
-- Reference previous context when relevant
+- When creating maps/charts, explain what you're showing and how it relates to previous conversation
 
-EXAMPLE FLOWS:
-User: "berapa proyek di bandung" 
--> Use sql_query_builder: "SELECT COUNT(*) FROM table WHERE wadmkk ILIKE '%bandung%'"
--> Remember: user asked about Bandung, got count result
-
-User: "buatkan petanya"
--> Remember previous context was about Bandung
--> Use create_map_visualization with SQL for Bandung projects
--> Response: "Berikut peta 110 proyek di Bandung yang tadi kita hitung..."
-
-CRITICAL: When user asks for maps, ALWAYS use the create_map_visualization tool, not sql_query_builder.""",
+CRITICAL: 
+- When user asks for maps, ALWAYS use create_map_visualization tool
+- Use conversation context to determine the right location/filter for maps and queries
+- If context is unclear, ask for clarification rather than guessing""",
         model="gpt-4.1-mini",
-        # memory=memory,  # Shared memory with SQL agent
         tools=[
             sql_agent.as_tool(
                 tool_name="sql_query_builder",
@@ -572,7 +564,7 @@ CRITICAL: When user asks for maps, ALWAYS use the create_map_visualization tool,
         ]
     )
     
-    return orchestrator_agent
+    return sql_agent, orchestrator_agent
 
 def check_authentication():
     """Check if user is authenticated"""
@@ -648,9 +640,41 @@ def initialize_geocode_service():
         return None
 
 async def process_user_query(query: str, orchestrator_agent: Agent) -> str:
-    """Process user query using the orchestrator agent"""
+    """Process user query using the orchestrator agent with conversation history"""
     try:
-        result = await Runner.run(orchestrator_agent, input=query)
+        # Build conversation context from chat history
+        conversation_context = ""
+        if hasattr(st.session_state, 'chat_messages') and len(st.session_state.chat_messages) > 1:
+            # Get last 6 messages (3 exchanges) for context
+            recent_messages = st.session_state.chat_messages[-6:]
+            context_parts = []
+            
+            for msg in recent_messages:
+                if msg['role'] == 'user':
+                    context_parts.append(f"User previously asked: {msg['content']}")
+                elif msg['role'] == 'assistant':
+                    # Extract key info from assistant responses
+                    content = msg['content']
+                    if 'proyek' in content and any(num in content for num in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']):
+                        context_parts.append(f"Assistant found: {content[:100]}...")
+            
+            if context_parts:
+                conversation_context = "\n".join(context_parts[-4:])  # Last 4 context items
+        
+        # Add conversation context to the query
+        enhanced_query = query
+        if conversation_context:
+            enhanced_query = f"""CONVERSATION CONTEXT:
+{conversation_context}
+
+CURRENT USER REQUEST: {query}
+
+Please use the conversation context to understand what the user is referring to. For example:
+- If they previously asked about "proyek di bandung" and now say "buatkan petanya", create a map of Bandung projects
+- If they asked about "client terbesar" and now say "detail yang pertama", show details of the top client
+- Connect follow-up questions to previous context appropriately"""
+        
+        result = await Runner.run(orchestrator_agent, input=enhanced_query)
         return result.final_output
     except Exception as e:
         return f"Error processing query: {str(e)}"
@@ -665,14 +689,12 @@ def render_ai_chat():
     # Initialize geocoding service
     geocode_service = initialize_geocode_service()
     
-    # Initialize orchestrator agent ONCE at startup (not in chat loop)
-    if 'orchestrator_agent' not in st.session_state:
-        st.session_state.orchestrator_agent = initialize_agents()
-        if not st.session_state.orchestrator_agent:
-            st.error("Failed to initialize agents")
-            return
+    # Initialize agents
+    sql_agent, orchestrator_agent = initialize_agents()
+    if not orchestrator_agent:
+        return
     
-    # Initialize chat history for display only (agents have their own memory)
+    # Initialize chat history
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
         welcome_msg = """Halo! Saya asisten AI RHR menggunakan sistem agents 🤖
@@ -683,7 +705,7 @@ Saya dapat membantu dengan:
 - **Grafik**: "Buatkan grafik pemberi tugas"
 - **Pencarian Lokasi**: "Proyek terdekat dari Mall Taman Anggrek"
 
-Saya akan mengingat konteks percakapan kita. Apa yang ingin Anda ketahui?"""
+Apa yang ingin Anda ketahui?"""
         
         st.session_state.chat_messages.append({
             "role": "assistant", 
@@ -711,31 +733,31 @@ Saya akan mengingat konteks percakapan kita. Apa yang ingin Anda ketahui?"""
     
     # Chat input
     if prompt := st.chat_input("Ask about your property data..."):
-        # Add user message to display history
+        # Add user message
         st.session_state.chat_messages.append({"role": "user", "content": prompt})
         
         # Display user message
         with st.chat_message("user"):
             st.markdown(prompt)
         
-        # Generate AI response using agents with memory
+        # Generate AI response using agents
         with st.chat_message("assistant"):
             with st.spinner("Processing with AI agents..."):
+                # Run the async function
                 try:
-                    # Create event loop for this request
+                    # Create a new event loop for this request
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     
-                    # Use the SAME orchestrator agent (with accumulated memory)
                     response = loop.run_until_complete(
-                        process_user_query(prompt, st.session_state.orchestrator_agent)
+                        process_user_query(prompt, orchestrator_agent)
                     )
                     
                     loop.close()
                     
                     st.markdown(response)
                     
-                    # Add to display history (agents maintain their own memory)
+                    # Add to chat history
                     st.session_state.chat_messages.append({
                         "role": "assistant",
                         "content": response
@@ -755,15 +777,11 @@ Saya akan mengingat konteks percakapan kita. Apa yang ingin Anda ketahui?"""
     
     with col1:
         if st.button("Clear Chat", use_container_width=True):
-            # Clear display history
             st.session_state.chat_messages = []
-            # Clear streamlit session data
             if 'last_query_result' in st.session_state:
                 del st.session_state.last_query_result
             if 'last_map_data' in st.session_state:
                 del st.session_state.last_map_data
-            # Reinitialize agents to clear memory
-            st.session_state.orchestrator_agent = initialize_agents()
             st.rerun()
     
     with col2:
