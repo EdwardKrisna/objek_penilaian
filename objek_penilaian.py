@@ -166,7 +166,7 @@ class DatabaseConnection:
             if not table_name:
                 return []
             
-            base_query = f"SELECT DISTINCT {column} FROM {table_name} WHERE {column} IS NOT NULL"
+            base_query = f"SELECT DISTINCT {column} FROM {table_name} WHERE {column} IS NOT NULL AND {column} != '' AND {column} != 'NULL'"
             
             if parent_filter:
                 if column == 'wadmkk' and 'wadmpr' in parent_filter:
@@ -283,10 +283,118 @@ class RHRAIChat:
         
         return location_name, radius_km
     
+    def handle_reference_query(self, user_question: str, last_result: pd.DataFrame = None) -> str:
+        """Handle queries that reference previous results (excluding direct ID requests)"""
+        
+        if last_result is not None and 'id' in last_result.columns:
+            user_lower = user_question.lower()
+            
+            # Positional references (Scenario 2)
+            if any(phrase in user_lower for phrase in ['yang pertama', 'first one', 'yang teratas']):
+                first_id = last_result['id'].iloc[0]
+                return f"SELECT * FROM {self.table_name} WHERE id = {first_id}"
+            
+            elif any(phrase in user_lower for phrase in ['yang terakhir', 'last one', 'yang paling bawah']):
+                last_id = last_result['id'].iloc[-1]
+                return f"SELECT * FROM {self.table_name} WHERE id = {last_id}"
+            
+            elif any(phrase in user_lower for phrase in ['yang kedua', 'second one']):
+                if len(last_result) >= 2:
+                    second_id = last_result['id'].iloc[1]
+                    return f"SELECT * FROM {self.table_name} WHERE id = {second_id}"
+            
+            # Value-based references (Scenario 2)
+            elif any(phrase in user_lower for phrase in ['yang terbesar', 'yang tertinggi', 'yang termahal']):
+                numeric_cols = last_result.select_dtypes(include=['number']).columns
+                # Exclude system columns
+                numeric_cols = [col for col in numeric_cols if col not in ['id', 'latitude', 'longitude']]
+                if len(numeric_cols) > 0:
+                    max_col = numeric_cols[0]
+                    max_id = last_result.loc[last_result[max_col].idxmax(), 'id']
+                    return f"SELECT * FROM {self.table_name} WHERE id = {max_id}"
+            
+            elif any(phrase in user_lower for phrase in ['yang terkecil', 'yang terendah', 'yang termurah']):
+                numeric_cols = last_result.select_dtypes(include=['number']).columns
+                numeric_cols = [col for col in numeric_cols if col not in ['id', 'latitude', 'longitude']]
+                if len(numeric_cols) > 0:
+                    min_col = numeric_cols[0]
+                    min_id = last_result.loc[last_result[min_col].idxmin(), 'id']
+                    return f"SELECT * FROM {self.table_name} WHERE id = {min_id}"
+            
+            # Client-based follow-up (Scenario 4)
+            elif any(phrase in user_lower for phrase in ['client pertama', 'pemberi tugas pertama', 'detail projek dari client pertama']) and 'pemberi_tugas' in last_result.columns:
+                first_client = last_result['pemberi_tugas'].iloc[0]
+                return f"SELECT * FROM {self.table_name} WHERE pemberi_tugas = '{first_client}' AND pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL'"
+            
+            # Status-based filtering on previous results (Scenario 3)
+            elif any(phrase in user_lower for phrase in ['yang completed', 'yang selesai', 'yang active', 'statusnya completed', 'statusnya active']):
+                ids = last_result['id'].tolist()
+                id_list = ','.join(map(str, ids))
+                if 'completed' in user_lower or 'selesai' in user_lower:
+                    return f"SELECT * FROM {self.table_name} WHERE id IN ({id_list}) AND status_text ILIKE '%completed%'"
+                elif 'active' in user_lower:
+                    return f"SELECT * FROM {self.table_name} WHERE id IN ({id_list}) AND status_text ILIKE '%active%'"
+            
+            # Geographic filtering on previous results (Scenario 5)
+            elif any(phrase in user_lower for phrase in ['jakarta selatan', 'jakarta utara', 'jakarta barat', 'jakarta timur', 'jakarta pusat']):
+                ids = last_result['id'].tolist()
+                id_list = ','.join(map(str, ids))
+                for area in ['jakarta selatan', 'jakarta utara', 'jakarta barat', 'jakarta timur', 'jakarta pusat']:
+                    if area in user_lower:
+                        return f"SELECT * FROM {self.table_name} WHERE id IN ({id_list}) AND wadmkk ILIKE '%{area}%'"
+            
+            # Province-based filtering (Scenario 5)
+            elif any(phrase in user_lower for phrase in ['di jawa barat', 'di jawa timur', 'di bali', 'di sumatra']):
+                ids = last_result['id'].tolist()
+                id_list = ','.join(map(str, ids))
+                if 'jawa barat' in user_lower:
+                    return f"SELECT * FROM {self.table_name} WHERE id IN ({id_list}) AND wadmpr ILIKE '%jawa barat%'"
+                elif 'jawa timur' in user_lower:
+                    return f"SELECT * FROM {self.table_name} WHERE id IN ({id_list}) AND wadmpr ILIKE '%jawa timur%'"
+                elif 'bali' in user_lower:
+                    return f"SELECT * FROM {self.table_name} WHERE id IN ({id_list}) AND wadmpr ILIKE '%bali%'"
+            
+            # General references to previous results (Scenario 2)
+            elif any(phrase in user_lower for phrase in 
+                ['hasil tadi', 'data sebelumnya', 'record tersebut', 'detail dari', 'more about', 'semua detail']):
+                # Get first few IDs from last result for detailed view
+                ids = last_result['id'].head(5).tolist()
+                id_list = ','.join(map(str, ids))
+                return f"SELECT * FROM {self.table_name} WHERE id IN ({id_list})"
+            
+            # Map-specific context handling
+            elif any(phrase in user_lower for phrase in ['paling utara', 'paling selatan', 'paling timur', 'paling barat']):
+                if hasattr(st.session_state, 'last_map_data') and st.session_state.last_map_data is not None:
+                    map_data = st.session_state.last_map_data
+                    if 'latitude' in map_data.columns and 'longitude' in map_data.columns:
+                        if 'paling utara' in user_lower:
+                            # Find northernmost point (highest latitude)
+                            north_id = map_data.loc[map_data['latitude'].idxmax(), 'id']
+                            return f"SELECT * FROM {self.table_name} WHERE id = {north_id}"
+                        elif 'paling selatan' in user_lower:
+                            # Find southernmost point (lowest latitude)
+                            south_id = map_data.loc[map_data['latitude'].idxmin(), 'id']
+                            return f"SELECT * FROM {self.table_name} WHERE id = {south_id}"
+                        elif 'paling timur' in user_lower:
+                            # Find easternmost point (highest longitude)
+                            east_id = map_data.loc[map_data['longitude'].idxmax(), 'id']
+                            return f"SELECT * FROM {self.table_name} WHERE id = {east_id}"
+                        elif 'paling barat' in user_lower:
+                            # Find westernmost point (lowest longitude)
+                            west_id = map_data.loc[map_data['longitude'].idxmin(), 'id']
+                            return f"SELECT * FROM {self.table_name} WHERE id = {west_id}"
+
+            elif any(phrase in user_lower for phrase in ['dari peta', 'di peta', 'pada peta']):
+                # General map reference
+                if hasattr(st.session_state, 'last_map_data'):
+                    return None  # Let AI generate new query but with map context
+        
+        return None
+    
     def generate_query(self, user_question: str, geographic_context: str = "") -> str:
         #create_chart_visualization(chart_type: string, sql_query: string, title: string, x_column: string, color_column y_column: string: string)
         system_prompt = f"""
-You are a strict SQL‐only assistant for the RHR property appraisal database.
+You are a strict SQL-only assistant for the RHR property appraisal database.
 You have three helper functions:
 
   create_map_visualization(sql_query: string, title: string)
@@ -313,18 +421,23 @@ Project Information:
 - pemberi_tugas (text): Client/Task giver (e.g., "PT Asuransi Jiwa IFG", "PT Perkebunan Nusantara II")
 - no_kontrak (text): Contract number (e.g., "RHR00C1P0623111.0")
 - nama_lokasi (text): Location name (e.g., "Lokasi 20", "Lokasi 3")
+- alamat_lokasi (text): Address detail (e.g., "Jalan Kampung Melayu Kecil I No.89, RT 013 / RW 10)
 - id (int8): Unique project identifier (e.g., 16316, 17122) - PRIMARY KEY
 
 Property Information:
 - objek_penilaian (text): Appraisal object type (e.g., "real properti")
 - nama_objek (text): Object name (e.g., "Rumah", "Tanah Kosong")
-- jenis_objek (float8): Object type code that joins with master_jenis_objek table for readable names
+- jenis_objek_text (text): Object type (e.g., "Hotel", "Aset Tak Berwujud")
 - kepemilikan (text): Ownership type (e.g., "tunggal" = single ownership)
-- keterangan (text): Additional notes (e.g., "Luas Tanah : 1.148", may contain NULL)
+- keterangan (text): Additional notes (e.g., "Luas Tanah : 1.148", ect.)
+
+Project Information:
+- penilaian_ke (text): How many times the project taken (e.g., "1" = once , "2" = twice)
+- penugasan_text (text): Project task type (e.g., "Penilaian Aset")
 
 Status & Management:
-- status (float8): Project status code that joins with master_status_objek table for readable names  
-- cabang (float8): Branch office code that joins with master_cabang table for readable names
+- status_text (text): Project status (e.g., "Inspeksi", "Penunjukan PIC")
+- cabang_text (text): Cabang name (e.g., "Cabang Bali", "Cabang Jakarta")
 - jc_text (text): Job captain or 'jc' (e.g., "IMW","FHM")
 
 Geographic Data:
@@ -338,24 +451,29 @@ Geographic Data:
 CRITICAL SQL RULES:
 1. For counting: SELECT COUNT(*) FROM {self.table_name} WHERE...
 2. For samples: SELECT id, [columns] FROM {self.table_name} WHERE... ORDER BY id DESC LIMIT 5
-3. For grouping with lookups: 
-   - Object types: SELECT mj.name as object_type, COUNT(*) FROM {self.table_name} t LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id GROUP BY mj.name ORDER BY COUNT(*) DESC LIMIT 10
-   - Status: SELECT ms.name as status_name, COUNT(*) FROM {self.table_name} t LEFT JOIN master_status_objek ms ON t.status = ms.id GROUP BY ms.name ORDER BY COUNT(*) DESC LIMIT 10  
-   - Branch: SELECT mc.name as branch_name, COUNT(*) FROM {self.table_name} t LEFT JOIN master_cabang mc ON t.cabang = mc.id GROUP BY mc.name ORDER BY COUNT(*) DESC LIMIT 10
-   - Other columns: SELECT [column], COUNT(*) FROM {self.table_name} t WHERE [column] IS NOT NULL GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
-4. Always use readable names: mj.name (not jenis_objek), ms.name (not status), mc.name (not cabang)
-5. Always handle NULLs: Use "WHERE column IS NOT NULL" when querying specific columns
-6. Text search: Use "ILIKE '%text%'" for case-insensitive search
-7. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%')"
-8. Always add LIMIT to prevent large result sets
-9. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns (nama_objek, pemberi_tugas, wadmpr, wadmkk)
-10. For readable names: Always JOIN with lookup tables to get names instead of codes
-11. Use aliases: mj (master_jenis_objek), ms (master_status_objek), mc (master_cabang)
-12. Standard JOINs:
-   - LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id
-   - LEFT JOIN master_status_objek ms ON t.status = ms.id  
-   - LEFT JOIN master_cabang mc ON t.cabang = mc.id
-13. Select readable columns: mj.name as jenis_objek_name, ms.name as status_name, mc.name as cabang_name
+3. For grouping: SELECT [column], COUNT(*) FROM {self.table_name} WHERE [column] IS NOT NULL AND [column] != '' AND [column] != 'NULL' GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
+4. Handle NULLs ONLY for the specific column being queried/grouped, NOT for the entire row
+5. For samples/details: Always include 'id' column so users can reference specific records later
+6. When filtering: Filter only the target column, keep other columns even if they have NULLs
+7. For numeric columns: Use "WHERE column IS NOT NULL AND column != 0" when 0 is not meaningful
+8. For coordinates: Use "WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0"
+9. Text search: Use "ILIKE '%text%'" for case-insensitive search with NULL handling
+10. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%') AND wadmpr IS NOT NULL"
+11. Always add LIMIT to prevent large result sets
+12. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns with NULL filtering
+13. Use direct column names (no JOINs needed as all data is in main table)
+14. MANDATORY: Filter out NULL, empty strings, and 'NULL' text values in WHERE clauses
+
+CONTEXT AWARENESS RULES:
+- Remember previous query results and their IDs for follow-up questions
+- When user says "yang pertama" (first one), use the first ID from last result
+- When user says "yang terakhir" (last one), use the last ID from last result
+- When user asks about "client pertama" (first client), get all projects from first client in last result
+- When user filters previous results (e.g., "yang di jakarta selatan"), apply filter to previous IDs
+- For positional references, always use the ID from the corresponding position in last result
+- For comparative references (biggest, smallest), find the appropriate record from last result
+- For status filtering ("yang completed"), filter previous IDs by status
+- For geographic filtering ("yang di jakarta selatan"), filter previous IDs by location
 
 Generate ONLY the PostgreSQL query, no explanations."""
 
@@ -522,16 +640,28 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
             # Clean coordinates
             map_df = query_data.copy()
             map_df = map_df.dropna(subset=['latitude', 'longitude'])
-            
+
             # Convert to numeric
             map_df['latitude'] = pd.to_numeric(map_df['latitude'], errors='coerce')
             map_df['longitude'] = pd.to_numeric(map_df['longitude'], errors='coerce')
-            
-            # Filter valid coordinates
+
+            # Filter valid coordinates and remove zeros (only for coordinates, keep other data)
             map_df = map_df[
                 (map_df['latitude'] >= -90) & (map_df['latitude'] <= 90) &
-                (map_df['longitude'] >= -180) & (map_df['longitude'] <= 180)
+                (map_df['longitude'] >= -180) & (map_df['longitude'] <= 180) &
+                (map_df['latitude'] != 0) & (map_df['longitude'] != 0)
             ]
+
+            # Replace null/empty values only for display purposes, keep original data structure
+            display_df = map_df.copy()
+            for col in ['nama_objek', 'pemberi_tugas', 'wadmpr', 'wadmkk']:
+                if col in display_df.columns:
+                    display_df[col] = display_df[col].fillna('N/A')
+                    display_df[col] = display_df[col].replace('', 'N/A')
+                    display_df[col] = display_df[col].replace('NULL', 'N/A')
+
+            # Use display_df for hover text but keep original map_df structure
+            map_df = display_df
             
             if len(map_df) == 0:
                 return "Error: Tidak ada data dengan koordinat yang valid untuk visualisasi peta."
@@ -587,7 +717,11 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
             
             # Display map in Streamlit
             st.plotly_chart(fig, use_container_width=True)
-            
+
+            # Store map data for future reference
+            st.session_state.last_map_data = map_df.copy()
+            st.session_state.last_query_result = map_df.copy()  # Also store as last_query_result
+
             return f"✅ Peta berhasil ditampilkan dengan {len(map_df)} properti."
             
         except Exception as e:
@@ -664,8 +798,8 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
         if any(word in user_question for word in ['client', 'pemberi tugas', 'klien']):
             return f"""
             SELECT pemberi_tugas, COUNT(*) as jumlah_proyek
-            FROM {self.table_name} t
-            WHERE pemberi_tugas IS NOT NULL
+            FROM {self.table_name}
+            WHERE pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL'
             GROUP BY pemberi_tugas 
             ORDER BY jumlah_proyek DESC 
             LIMIT 10
@@ -674,8 +808,8 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
         elif any(word in user_question for word in ['provinsi', 'province', 'wilayah']):
             return f"""
             SELECT wadmpr as provinsi, COUNT(*) as jumlah_proyek
-            FROM {self.table_name} t
-            WHERE wadmpr IS NOT NULL
+            FROM {self.table_name}
+            WHERE wadmpr IS NOT NULL AND wadmpr != '' AND wadmpr != 'NULL'
             GROUP BY wadmpr 
             ORDER BY jumlah_proyek DESC 
             LIMIT 15
@@ -683,32 +817,29 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
         
         elif any(word in user_question for word in ['jenis', 'tipe', 'type', 'objek']):
             return f"""
-            SELECT mj.name as jenis_objek, COUNT(*) as jumlah_proyek
-            FROM {self.table_name} t
-            LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id
-            WHERE mj.name IS NOT NULL
-            GROUP BY mj.name 
+            SELECT jenis_objek_text as jenis_objek, COUNT(*) as jumlah_proyek
+            FROM {self.table_name}
+            WHERE jenis_objek_text IS NOT NULL AND jenis_objek_text != '' AND jenis_objek_text != 'NULL'
+            GROUP BY jenis_objek_text 
             ORDER BY jumlah_proyek DESC 
             LIMIT 10
             """
         
         elif any(word in user_question for word in ['status', 'kondisi']):
             return f"""
-            SELECT ms.name as status_proyek, COUNT(*) as jumlah_proyek
-            FROM {self.table_name} t
-            LEFT JOIN master_status_objek ms ON t.status = ms.id
-            WHERE ms.name IS NOT NULL
-            GROUP BY ms.name 
+            SELECT status_text as status_proyek, COUNT(*) as jumlah_proyek
+            FROM {self.table_name}
+            WHERE status_text IS NOT NULL AND status_text != '' AND status_text != 'NULL'
+            GROUP BY status_text 
             ORDER BY jumlah_proyek DESC
             """
         
         elif any(word in user_question for word in ['cabang', 'branch', 'kantor']):
             return f"""
-            SELECT mc.name as cabang, COUNT(*) as jumlah_proyek
-            FROM {self.table_name} t
-            LEFT JOIN master_cabang mc ON t.cabang = mc.id
-            WHERE mc.name IS NOT NULL
-            GROUP BY mc.name 
+            SELECT cabang_text as cabang, COUNT(*) as jumlah_proyek
+            FROM {self.table_name}
+            WHERE cabang_text IS NOT NULL AND cabang_text != '' AND cabang_text != 'NULL'
+            GROUP BY cabang_text 
             ORDER BY jumlah_proyek DESC 
             LIMIT 10
             """
@@ -717,8 +848,8 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
             # Default: top clients
             return f"""
             SELECT pemberi_tugas, COUNT(*) as jumlah_proyek
-            FROM {self.table_name} t
-            WHERE pemberi_tugas IS NOT NULL
+            FROM {self.table_name}
+            WHERE pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL'
             GROUP BY pemberi_tugas 
             ORDER BY jumlah_proyek DESC 
             LIMIT 10
@@ -857,33 +988,32 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
             # Query nearby projects using Haversine formula
             sql_query = f"""
             SELECT 
-                t.id,
-                t.nama_objek,
-                t.pemberi_tugas,
-                t.latitude,
-                t.longitude,
-                t.wadmpr,
-                t.wadmkk,
-                t.wadmkc,
-                mj.name as jenis_objek_name,
-                ms.name as status_name,
-                mc.name as cabang_name,
+                id,
+                nama_objek,
+                pemberi_tugas,
+                latitude,
+                longitude,
+                wadmpr,
+                wadmkk,
+                wadmkc,
+                jenis_objek_text,
+                status_text,
+                cabang_text,
                 (6371 * acos(
-                    cos(radians({lat})) * cos(radians(t.latitude)) * 
-                    cos(radians(t.longitude) - radians({lng})) + 
-                    sin(radians({lat})) * sin(radians(t.latitude))
+                    cos(radians({lat})) * cos(radians(latitude)) * 
+                    cos(radians(longitude) - radians({lng})) + 
+                    sin(radians({lat})) * sin(radians(latitude))
                 )) as distance_km
-            FROM {self.table_name} t
-            LEFT JOIN master_jenis_objek mj ON t.jenis_objek = mj.id
-            LEFT JOIN master_status_objek ms ON t.status = ms.id
-            LEFT JOIN master_cabang mc ON t.cabang = mc.id
+            FROM {self.table_name}
             WHERE 
-                t.latitude IS NOT NULL 
-                AND t.longitude IS NOT NULL
+                latitude IS NOT NULL 
+                AND longitude IS NOT NULL
+                AND latitude != 0 
+                AND longitude != 0
                 AND (6371 * acos(
-                    cos(radians({lat})) * cos(radians(t.latitude)) * 
-                    cos(radians(t.longitude) - radians({lng})) + 
-                    sin(radians({lat})) * sin(radians(t.latitude))
+                    cos(radians({lat})) * cos(radians(latitude)) * 
+                    cos(radians(longitude) - radians({lng})) + 
+                    sin(radians({lat})) * sin(radians(latitude))
                 )) <= {radius_km}
             ORDER BY distance_km ASC
             LIMIT 50
@@ -957,13 +1087,17 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                 
                 # Display map
                 st.plotly_chart(fig, use_container_width=True)
-                
+
+                # Store map data for future reference
+                st.session_state.last_map_data = result_df.copy()
+                st.session_state.last_query_result = result_df.copy()
+
                 # Show results table
                 with st.expander("📊 Detail Proyek Terdekat", expanded=False):
-                    st.dataframe(result_df[['id', 'nama_objek', 'pemberi_tugas', 'jenis_objek_name', 
-                                          'wadmpr', 'wadmkk', 'distance_km']].round(2), 
-                               use_container_width=True)
-                
+                    st.dataframe(result_df[['id', 'nama_objek', 'pemberi_tugas', 'jenis_objek_text', 
+                                'wadmpr', 'wadmkk', 'distance_km']].round(2), 
+                    use_container_width=True)
+
                 return f"✅ Ditemukan {len(result_df)} proyek dalam radius {radius_km} km dari {location_name}. Proyek terdekat berjarak {result_df['distance_km'].min():.2f} km."
             
             else:
@@ -1290,6 +1424,35 @@ Apa yang ingin Anda ketahui tentang proyek Anda?"""
                     
                     geo_context = "Geographic context: " + " | ".join(context_parts)
                 
+                # Check if this is a reference query first
+                if hasattr(st.session_state, 'last_query_result'):
+                    reference_query = st.session_state.ai_chat.handle_reference_query(
+                        prompt, st.session_state.last_query_result
+                    )
+                    if reference_query:
+                        sql_query = reference_query
+                        # Execute reference query and show results
+                        result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+                        
+                        if result_df is not None:
+                            with st.expander("📊 Detailed Record Information", expanded=True):
+                                st.code(sql_query, language="sql")
+                                st.dataframe(result_df, use_container_width=True)
+                            
+                            formatted_response = st.session_state.ai_chat.format_response(
+                                prompt, result_df, sql_query
+                            )
+                            final_response = formatted_response
+                        else:
+                            final_response = f"Error: {query_msg}"
+                        
+                        # Add to chat and exit early
+                        st.session_state.chat_messages.append({
+                            "role": "assistant", 
+                            "content": final_response
+                        })
+                        return
+                
                 # Step 1: Generate SQL query or function call using o4-mini
                 ai_response = st.session_state.ai_chat.generate_query(prompt, geo_context)
                 
@@ -1392,6 +1555,28 @@ Grafik menampilkan data berdasarkan query yang dijalankan."""
                                 st.markdown(nearby_result)
                                 final_response = nearby_result
                             
+                            elif output_item.name == "create_map_visualization":
+                                # Parse function arguments
+                                args = json.loads(output_item.arguments)
+                                sql_query = args.get("sql_query")
+                                map_title = args.get("title", "Property Locations")
+                                
+                                # Execute the SQL query
+                                result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+                                
+                                if result_df is not None and len(result_df) > 0:
+                                    # Create map visualization
+                                    map_result = st.session_state.ai_chat.create_map_visualization(result_df, map_title)
+                                    
+                                    # IMPORTANT: Store the map data for future reference
+                                    st.session_state.last_query_result = result_df
+                                    st.session_state.last_map_data = result_df.copy()
+                                    
+                                    # Show query details in expandable section
+                                    with st.expander("📊 Query Details", expanded=False):
+                                        st.code(sql_query, language="sql")
+                                        st.dataframe(result_df, use_container_width=True)
+
                             break
                     
                     # If no function was called, treat as regular SQL query
@@ -1446,87 +1631,6 @@ Grafik menampilkan data berdasarkan query yang dijalankan."""
                     "role": "assistant",
                     "content": error_msg
                 })
-    
-    # # Quick action buttons
-    # st.markdown("---")
-    # st.markdown("**Quick Questions:**")
-    
-    # col1, col2, col3, col4 = st.columns(4)
-    
-    # with col1:
-    #     if st.button("Project Count", use_container_width=True):
-    #         quick_prompt = "How many total projects do we have?"
-    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-    #         st.rerun()
-    
-    # with col2:
-    #     if st.button("Top Clients", use_container_width=True):
-    #         quick_prompt = "Who are our top 5 clients by number of projects?"
-    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-    #         st.rerun()
-    
-    # with col3:
-    #     if st.button("Property Types", use_container_width=True):
-    #         quick_prompt = "What are the most common property types we appraise?"
-    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-    #         st.rerun()
-    
-    # with col4:
-    #     if st.button("Show Chart", use_container_width=True):
-    #         quick_prompt = "Buatkan grafik pemberi tugas terbanyak"
-    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-    #         st.rerun()
-    
-    # # NEW: Chart-based quick actions
-    # st.markdown("**📊 Chart Quick Actions:**")
-    # col1, col2, col3, col4 = st.columns(4)
-    
-    # with col1:
-    #     if st.button("Client Chart", use_container_width=True):
-    #         quick_prompt = "Tampilkan barchart klien terbanyak"
-    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-    #         st.rerun()
-    
-    # with col2:
-    #     if st.button("Province Pie", use_container_width=True):
-    #         quick_prompt = "Buatkan pie chart berdasarkan provinsi"
-    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-    #         st.rerun()
-    
-    # with col3:
-    #     if st.button("Property Types", use_container_width=True):
-    #         quick_prompt = "Tampilkan grafik jenis properti"
-    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-    #         st.rerun()
-    
-    # with col4:
-    #     if st.button("Status Chart", use_container_width=True):
-    #         quick_prompt = "Buatkan barchart status proyek"
-    #         st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-    #         st.rerun()
-    
-    # # NEW: Location-based quick actions
-    # if geocode_service:
-    #     st.markdown("**📍 Location-based Quick Actions:**")
-    #     col1, col2, col3 = st.columns(3)
-        
-    #     with col1:
-    #         if st.button("Near Plaza Indonesia", use_container_width=True):
-    #             quick_prompt = "Buatkan map proyek terdekat dari Plaza Indonesia radius 2km"
-    #             st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-    #             st.rerun()
-        
-    #     with col2:
-    #         if st.button("Near Senayan City", use_container_width=True):
-    #             quick_prompt = "Tampilkan proyek sekitar Senayan City dalam radius 1.5km"
-    #             st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-    #             st.rerun()
-        
-    #     with col3:
-    #         if st.button("Near Thamrin", use_container_width=True):
-    #             quick_prompt = "Cari proyek terdekat dari Thamrin Jakarta radius 1km"
-    #             st.session_state.chat_messages.append({"role": "user", "content": quick_prompt})
-    #             st.rerun()
     
     # Chat management
     st.markdown("---")
