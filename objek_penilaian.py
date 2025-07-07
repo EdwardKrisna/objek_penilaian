@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import asyncio
 
 # OpenAI Agents framework imports
-from agents import Agent, Runner, function_tool, handoff, RunContextWrapper
+from agents import Agent, Runner, function_tool, handoff, RunContextWrapper, ModelSettings
 from agents.models.openai_responses import OpenAIResponsesModel
 from pydantic import BaseModel
 import openai  # Add this import
@@ -671,11 +671,11 @@ def create_sql_agent() -> Agent[RHRContext]:
         5. For maps: Include id, latitude, longitude, and descriptive columns
         6. Handle reference queries (first, last, biggest, etc.) from previous results
         
-        Always respond with a SQLQueryRequest object containing the optimized query.""",
+        Always respond with a SQLQueryRequest object containing the optimized query.""",  # Your existing instructions
         model=model,
-        model_settings={
-            "temperature": settings["temperature"]  # Only temperature, no api_key
-        },
+        model_settings=ModelSettings(  # Use ModelSettings object, not dict
+            temperature=settings["temperature"]
+        ),
         tools=[execute_sql_query],
         output_type=SQLQueryRequest
     )
@@ -705,11 +705,11 @@ def create_visualization_agent() -> Agent[RHRContext]:
         - User intent (comparison, distribution, location, trends)
         - Data volume and complexity
         
-        Provide clear, informative visualizations with proper titles and labeling.""",
+        Provide clear, informative visualizations with proper titles and labeling.""",  # Your existing instructions
         model=model,
-        model_settings={
-            "temperature": settings["temperature"]
-        },
+        model_settings=ModelSettings(  # Use ModelSettings object, not dict
+            temperature=settings["temperature"]
+        ),
         tools=[create_map_visualization, create_chart_visualization, find_nearby_projects]
     )
 
@@ -735,11 +735,11 @@ def create_explanation_agent() -> Agent[RHRContext]:
         - Actionable recommendations when appropriate
         - Professional and helpful tone
         
-        Focus on business value and practical insights rather than technical details.""",
+        Focus on business value and practical insights rather than technical details.""",  # Your existing instructions
         model=model,
-        model_settings={
-            "temperature": settings["temperature"]
-        }
+        model_settings=ModelSettings(  # Use ModelSettings object, not dict
+            temperature=settings["temperature"]
+        )
     )
 
 def create_manager_agent() -> Agent[RHRContext]:
@@ -775,11 +775,11 @@ def create_manager_agent() -> Agent[RHRContext]:
         - Coordinate the complete workflow from request to final response
         - Remember previous interactions and results
         
-        You are the orchestrator and decision maker.""",
+        You are the orchestrator and decision maker.""",  # Your existing instructions
         model=model,
-        model_settings={
-            "temperature": settings["temperature"]
-        },
+        model_settings=ModelSettings(  # Use ModelSettings object, not dict
+            temperature=settings["temperature"]
+        ),
         handoffs=[
             handoff(sql_agent, tool_name_override="query_database"),
             handoff(visualization_agent, tool_name_override="create_visualization"), 
