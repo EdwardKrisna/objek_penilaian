@@ -533,8 +533,7 @@ CONTEXT AWARENESS RULES:
 - For geographic filtering ("yang di jakarta selatan"), filter previous IDs by location
 
 Generate ONLY the PostgreSQL query, no explanations.""",
-        model="o4-mini",
-        reasoning={"effort": "low"}
+        model="o4-mini"
     )
     
     # Orchestrator Agent
