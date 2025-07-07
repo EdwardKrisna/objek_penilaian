@@ -1096,15 +1096,15 @@ def main():
         st.sidebar.success(f"Logged in as: {username}")
     except KeyError:
         st.sidebar.success("Logged in as: User")
-    
+
     if st.sidebar.button("Logout"):
         st.session_state.authenticated = False
         st.rerun()
-    
+
     # Framework info with configuration
     st.sidebar.markdown("---")
     st.sidebar.markdown("**🤖 Agent Framework**")
-    
+
     # Show current model configuration
     try:
         st.sidebar.info(f"""
@@ -1118,7 +1118,7 @@ def main():
         - Max Turns: {get_agent_settings()["max_turns"]}
         - Temperature: {get_agent_settings()["temperature"]}
         """)
-    except:
+    except Exception:
         st.sidebar.info("""
         This app uses OpenAI Agents framework:
         - Manager Agent (Orchestrator)
@@ -1126,6 +1126,7 @@ def main():
         - Visualization Agent (Maps & Charts)
         - Explanation Agent (Communication)
         """)
+
     
     # Configuration status
     st.sidebar.markdown("**⚙️ Configuration Status**")
@@ -1136,7 +1137,7 @@ def main():
         # Check OpenAI API key
         try:
             api_key = st.secrets["openai"]["api_key"]
-            if api_key and len(api_key) > 10:  # Basic validation
+            if api_key and len(api_key) > 10:
                 st.sidebar.success("✅ OpenAI API Key")
             else:
                 missing_configs.append("OpenAI API Key")
@@ -1147,24 +1148,34 @@ def main():
         
         # Check database config
         try:
-            st.secrets["database"]["user"]
-            st.secrets["database"]["table_name"]
-            st.sidebar.success("✅ Database Config")
+            db_user = st.secrets["database"]["user"]
+            table_name = st.secrets["database"]["table_name"]
+            if db_user and table_name:
+                st.sidebar.success("✅ Database Config")
+            else:
+                missing_configs.append("Database Config")
+                st.sidebar.error("❌ Invalid Database Config")
         except KeyError:
             missing_configs.append("Database Config")
-            st.sidebar.error("❌ Database Config")
+            st.sidebar.error("❌ Database Config Missing")
         
         # Check Google Maps API (optional)
         try:
-            st.secrets["google"]["api_key"]
-            st.sidebar.success("✅ Google Maps API")
+            google_key = st.secrets["google"]["api_key"]
+            if google_key and len(google_key) > 10:
+                st.sidebar.success("✅ Google Maps API")
+            else:
+                st.sidebar.warning("⚠️ Invalid Google Maps API")
         except KeyError:
             st.sidebar.warning("⚠️ Google Maps API (Optional)")
         
         # Check agent configuration
         try:
-            st.secrets["agents"]["manager_model"]
-            st.sidebar.success("✅ Agent Models Config")
+            manager_model = st.secrets["agents"]["manager_model"]
+            if manager_model:
+                st.sidebar.success("✅ Agent Models Config")
+            else:
+                st.sidebar.info("ℹ️ Using Default Agent Models")
         except KeyError:
             st.sidebar.info("ℹ️ Using Default Agent Models")
         
