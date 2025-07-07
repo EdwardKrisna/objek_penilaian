@@ -15,18 +15,19 @@ from dataclasses import dataclass
 import asyncio
 
 # OpenAI Agents framework imports
-import openai
 from agents import Agent, Runner, function_tool, handoff, RunContextWrapper
 from agents.models.openai_responses import OpenAIResponsesModel
 from pydantic import BaseModel
+import openai  # Add this import
 
-warnings.filterwarnings('ignore')
-
+# Configure OpenAI API key globally (ADD THIS SECTION)
 try:
     openai.api_key = st.secrets["openai"]["api_key"]
 except KeyError:
-    st.error("❌ OpenAI API Key Missing! Please add it to your secrets.toml")
+    st.error("OpenAI API key not found in secrets.toml. Please add your API key.")
+    st.stop()
 
+warnings.filterwarnings('ignore')
 
 # Set page config
 st.set_page_config(
@@ -82,12 +83,13 @@ class RHRContext:
     """Context shared across all agents"""
     db_connection: Any = None
     geocode_service: Any = None
+    # Remove: openai_client: Any = None  
     table_name: str = ""
     geographic_filters: Dict = None
     last_query_result: pd.DataFrame = None
     last_map_data: pd.DataFrame = None
     chat_history: List[Dict] = None
-
+    
 # Pydantic models for structured data
 class SQLQueryRequest(BaseModel):
     query: str
@@ -613,7 +615,7 @@ def create_sql_agent() -> Agent[RHRContext]:
         Always respond with a SQLQueryRequest object containing the optimized query.""",
         model=model,
         model_settings={
-            "temperature": settings["temperature"]
+            "temperature": settings["temperature"]  # Only temperature, no api_key
         },
         tools=[execute_sql_query],
         output_type=SQLQueryRequest
@@ -726,6 +728,15 @@ def create_manager_agent() -> Agent[RHRContext]:
         ]
     )
 
+def initialize_openai_client():
+    """Initialize OpenAI client with API key from secrets"""
+    try:
+        api_key = st.secrets["openai"]["api_key"]
+        return OpenAI(api_key=api_key)
+    except KeyError:
+        st.error("OpenAI API key not found in secrets. Please add your API key to secrets.toml")
+        return None
+
 # Initialize system functions
 def check_authentication():
     """Check if user is authenticated"""
@@ -763,6 +774,13 @@ def initialize_context() -> RHRContext:
         st.session_state.rhr_context = RHRContext()
     
     context = st.session_state.rhr_context
+    
+    # Initialize OpenAI client
+    if not hasattr(context, 'openai_client') or context.openai_client is None:
+        context.openai_client = initialize_openai_client()
+        if context.openai_client is None:
+            st.error("Cannot proceed without OpenAI API key")
+            return context
     
     # Initialize database connection
     if context.db_connection is None:
@@ -1090,6 +1108,11 @@ def main():
     if not check_authentication():
         login()
         return
+    
+    try:
+        openai.api_key = st.secrets["openai"]["api_key"]
+    except KeyError:
+        st.error("❌ OpenAI API Key Missing! Please add it to your secrets.toml")
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
@@ -1139,6 +1162,20 @@ def main():
     try:
         # Check if all required secrets are present
         missing_configs = []
+        
+        # Check OpenAI API key
+        try:
+            api_key = st.secrets["openai"]["api_key"]
+            openai.api_key = api_key
+            if api_key and len(api_key) > 10:
+                st.sidebar.success("✅ OpenAI API Key")
+            else:
+                missing_configs.append("OpenAI API Key")
+                st.sidebar.error("❌ Invalid OpenAI API Key")
+        except KeyError:
+            missing_configs.append("OpenAI API Key")
+            st.sidebar.error("❌ OpenAI API Key Missing")
+
         
         # Check database config
         try:
