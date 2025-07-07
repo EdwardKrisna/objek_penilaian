@@ -1091,7 +1091,11 @@ def main():
     
     # Show current user
     st.sidebar.markdown("---")
-    st.sidebar.success(f"Logged in as: {st.secrets['auth']['username']}")
+    try:
+        username = st.secrets['auth']['username']
+        st.sidebar.success(f"Logged in as: {username}")
+    except KeyError:
+        st.sidebar.success("Logged in as: User")
     
     if st.sidebar.button("Logout"):
         st.session_state.authenticated = False
@@ -1131,11 +1135,15 @@ def main():
         
         # Check OpenAI API key
         try:
-            st.secrets["openai"]["api_key"]
-            st.sidebar.success("✅ OpenAI API Key")
+            api_key = st.secrets["openai"]["api_key"]
+            if api_key and len(api_key) > 10:  # Basic validation
+                st.sidebar.success("✅ OpenAI API Key")
+            else:
+                missing_configs.append("OpenAI API Key")
+                st.sidebar.error("❌ Invalid OpenAI API Key")
         except KeyError:
             missing_configs.append("OpenAI API Key")
-            st.sidebar.error("❌ OpenAI API Key")
+            st.sidebar.error("❌ OpenAI API Key Missing")
         
         # Check database config
         try:
