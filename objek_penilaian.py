@@ -20,9 +20,17 @@ from agents.models.openai_responses import OpenAIResponsesModel
 from pydantic import BaseModel
 import openai  # Add this import
 
-# Configure OpenAI API key globally (ADD THIS SECTION)
+# Configure OpenAI API key globally and for environment
 try:
-    openai.api_key = st.secrets["openai"]["api_key"]
+    import os
+    api_key = st.secrets["openai"]["api_key"]
+    
+    # Set for openai library
+    openai.api_key = api_key
+    
+    # Set environment variable for agents framework tracing
+    os.environ["OPENAI_API_KEY"] = api_key
+    
 except KeyError:
     st.error("OpenAI API key not found in secrets.toml. Please add your API key.")
     st.stop()
