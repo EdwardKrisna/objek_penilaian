@@ -8,8 +8,8 @@ sqlalchemy>=1.4.0,<2.1.0
 psycopg2-binary>=2.9.0
 
 # OpenAI Agents Framework (NEW)
-openai-agents>=0.1.0
-openai>=1.0.0
+openai-agents
+openai
 
 # Data visualization
 plotly>=5.15.0
@@ -25,6 +25,3 @@ typing-extensions>=4.5.0
 
 # Async support
 asyncio-compat>=0.1.0
-
-# Additional utilities
-python-dotenv>=1.0.0
