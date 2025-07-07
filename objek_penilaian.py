@@ -870,14 +870,13 @@ async def run_agent_query(user_input: str, context: RHRContext):
         settings = get_agent_settings()
         manager_agent = create_manager_agent()
 
-        # Run the agent with configurable max_turns
+        # Call Runner.run with correct parameter structure
         result = await Runner.run(
-            manager_agent,
-            [ { "role": "user", "content": user_input } ],
-            context=context,
-            max_turns=settings["max_turns"],
+            agent=manager_agent,          # Use keyword argument
+            input=user_input,             # Use keyword argument
+            context=context,              # Context as keyword
+            max_turns=settings["max_turns"]
         )
-
         return result.final_output
 
     except Exception as e:
