@@ -775,7 +775,6 @@ def create_manager_agent() -> Agent[RHRContext]:
         You are the orchestrator and decision maker.""",  # Your existing instructions
         model=model,
         model_settings=ModelSettings(  # Use ModelSettings object, not dict
-            temperature=settings["temperature"]
         ),
         handoffs=[
             handoff(sql_agent, tool_name_override="query_database"),
