@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import asyncio
 
 # OpenAI Agents framework imports
+import openai
 from agents import Agent, Runner, function_tool, handoff, RunContextWrapper
 from agents.models.openai_responses import OpenAIResponsesModel
 from pydantic import BaseModel
@@ -1136,6 +1137,7 @@ def main():
         # Check OpenAI API key
         try:
             api_key = st.secrets["openai"]["api_key"]
+            openai.api_key = api_key
             if api_key and len(api_key) > 10:
                 st.sidebar.success("✅ OpenAI API Key")
             else:
@@ -1144,6 +1146,7 @@ def main():
         except KeyError:
             missing_configs.append("OpenAI API Key")
             st.sidebar.error("❌ OpenAI API Key Missing")
+
         
         # Check database config
         try:
