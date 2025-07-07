@@ -83,13 +83,12 @@ class RHRContext:
     """Context shared across all agents"""
     db_connection: Any = None
     geocode_service: Any = None
-    # Remove: openai_client: Any = None  
     table_name: str = ""
     geographic_filters: Dict = None
     last_query_result: pd.DataFrame = None
     last_map_data: pd.DataFrame = None
     chat_history: List[Dict] = None
-    
+
 # Pydantic models for structured data
 class SQLQueryRequest(BaseModel):
     query: str
@@ -207,6 +206,32 @@ class DatabaseConnection:
         
         except Exception as e:
             return None, f"Query execution failed: {str(e)}"
+    
+    def get_unique_geographic_values(self, column: str, filters: Dict = None, table_name: str = "objek_penilaian") -> List[str]:
+        """Get unique values for geographic columns with optional filters"""
+        try:
+            if not self.connection_status:
+                return []
+            
+            # Build base query
+            query = f"SELECT DISTINCT {column} FROM {table_name} WHERE {column} IS NOT NULL AND {column} != '' AND {column} != 'NULL'"
+            
+            # Add filters if provided
+            if filters:
+                for filter_col, filter_values in filters.items():
+                    if filter_values:
+                        values_str = "', '".join(filter_values)
+                        query += f" AND {filter_col} IN ('{values_str}')"
+            
+            query += f" ORDER BY {column}"
+            
+            with self.engine.connect() as conn:
+                result = conn.execute(text(query))
+                return [row[0] for row in result if row[0]]
+        
+        except Exception as e:
+            st.error(f"Error fetching {column} values: {str(e)}")
+            return []
 
 # Agent tool functions
 @function_tool
@@ -272,6 +297,22 @@ async def create_map_visualization(ctx: RunContextWrapper[RHRContext], data_json
         
         if len(df) == 0:
             return "Error: No valid coordinates found for map visualization."
+        
+        # Enhanced tool configuration with limits
+        try:
+            tool_config = get_tool_config()
+            max_results = tool_config["max_map_results"]
+            
+            # Limit data if necessary
+            if len(df) > max_results:
+                st.warning(f"Showing first {max_results} results out of {len(df)} total. Use filters to narrow down results.")
+                df = df.head(max_results)
+        except:
+            # Fallback if get_tool_config fails
+            max_results = 50
+            if len(df) > max_results:
+                st.warning(f"Showing first {max_results} results out of {len(df)} total.")
+                df = df.head(max_results)
         
         # Create map
         fig = go.Figure()
@@ -345,12 +386,19 @@ async def create_chart_visualization(ctx: RunContextWrapper[RHRContext], data_js
             return "Error: No data available for chart visualization."
         
         # Apply data limits for performance
-        tool_config = get_tool_config()
-        max_data_points = tool_config["max_chart_data_points"]
-        
-        if len(df) > max_data_points:
-            st.warning(f"Large dataset detected. Showing first {max_data_points} records out of {len(df)} for performance.")
-            df = df.head(max_data_points)
+        try:
+            tool_config = get_tool_config()
+            max_data_points = tool_config["max_chart_data_points"]
+            
+            if len(df) > max_data_points:
+                st.warning(f"Large dataset detected. Showing first {max_data_points} records out of {len(df)} for performance.")
+                df = df.head(max_data_points)
+        except:
+            # Fallback if get_tool_config fails
+            max_data_points = 1000
+            if len(df) > max_data_points:
+                st.warning(f"Large dataset detected. Showing first {max_data_points} records.")
+                df = df.head(max_data_points)
         
         # Auto-detect columns if not provided
         chart_type = request.chart_type
@@ -434,8 +482,11 @@ async def find_nearby_projects(ctx: RunContextWrapper[RHRContext], request: Loca
         
         # Query nearby projects using Haversine formula with configurable limit
         table_name = ctx.context.table_name
-        tool_config = get_tool_config()
-        max_results = tool_config["max_map_results"]
+        try:
+            tool_config = get_tool_config()
+            max_results = tool_config["max_map_results"]
+        except:
+            max_results = 50
         
         sql_query = f"""
         SELECT 
@@ -728,15 +779,6 @@ def create_manager_agent() -> Agent[RHRContext]:
         ]
     )
 
-def initialize_openai_client():
-    """Initialize OpenAI client with API key from secrets"""
-    try:
-        api_key = st.secrets["openai"]["api_key"]
-        return OpenAI(api_key=api_key)
-    except KeyError:
-        st.error("OpenAI API key not found in secrets. Please add your API key to secrets.toml")
-        return None
-
 # Initialize system functions
 def check_authentication():
     """Check if user is authenticated"""
@@ -774,13 +816,6 @@ def initialize_context() -> RHRContext:
         st.session_state.rhr_context = RHRContext()
     
     context = st.session_state.rhr_context
-    
-    # Initialize OpenAI client
-    if not hasattr(context, 'openai_client') or context.openai_client is None:
-        context.openai_client = initialize_openai_client()
-        if context.openai_client is None:
-            st.error("Cannot proceed without OpenAI API key")
-            return context
     
     # Initialize database connection
     if context.db_connection is None:
@@ -827,7 +862,7 @@ async def run_agent_query(user_input: str, context: RHRContext):
         settings = get_agent_settings()
         manager_agent = create_manager_agent()
 
-        # ↓ call Runner.run with positional args, not keywords:
+        # Run the agent with configurable max_turns
         result = await Runner.run(
             manager_agent,
             user_input,
@@ -1109,11 +1144,6 @@ def main():
         login()
         return
     
-    try:
-        openai.api_key = st.secrets["openai"]["api_key"]
-    except KeyError:
-        st.error("❌ OpenAI API Key Missing! Please add it to your secrets.toml")
-
     # Sidebar navigation
     st.sidebar.title("Navigation")
     page = st.sidebar.radio("Go to:", ["Geographic Filter", "AI Agents"])
@@ -1166,7 +1196,6 @@ def main():
         # Check OpenAI API key
         try:
             api_key = st.secrets["openai"]["api_key"]
-            openai.api_key = api_key
             if api_key and len(api_key) > 10:
                 st.sidebar.success("✅ OpenAI API Key")
             else:
