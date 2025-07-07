@@ -22,6 +22,12 @@ from pydantic import BaseModel
 
 warnings.filterwarnings('ignore')
 
+try:
+    openai.api_key = st.secrets["openai"]["api_key"]
+except KeyError:
+    st.error("❌ OpenAI API Key Missing! Please add it to your secrets.toml")
+
+
 # Set page config
 st.set_page_config(
     page_title="RHR AI Query App with Agents",
@@ -1084,7 +1090,7 @@ def main():
     if not check_authentication():
         login()
         return
-    
+
     # Sidebar navigation
     st.sidebar.title("Navigation")
     page = st.sidebar.radio("Go to:", ["Geographic Filter", "AI Agents"])
@@ -1133,20 +1139,6 @@ def main():
     try:
         # Check if all required secrets are present
         missing_configs = []
-        
-        # Check OpenAI API key
-        try:
-            api_key = st.secrets["openai"]["api_key"]
-            openai.api_key = api_key
-            if api_key and len(api_key) > 10:
-                st.sidebar.success("✅ OpenAI API Key")
-            else:
-                missing_configs.append("OpenAI API Key")
-                st.sidebar.error("❌ Invalid OpenAI API Key")
-        except KeyError:
-            missing_configs.append("OpenAI API Key")
-            st.sidebar.error("❌ OpenAI API Key Missing")
-
         
         # Check database config
         try:
