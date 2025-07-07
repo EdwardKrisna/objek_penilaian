@@ -800,22 +800,21 @@ async def run_agent_query(user_input: str, context: RHRContext):
     """Run the agent system with user input and configurable settings"""
     try:
         settings = get_agent_settings()
-        
-        # Create manager agent
         manager_agent = create_manager_agent()
-        
-        # Run the agent with configurable max_turns
+
+        # ↓ call Runner.run with positional args, not keywords:
         result = await Runner.run(
-            agent=manager_agent,
-            input=user_input,
-            context=context,
-            max_turns=settings["max_turns"]
+            manager_agent,
+            user_input,
+            context,
+            settings["max_turns"]
         )
-        
+
         return result.final_output
-        
+
     except Exception as e:
         return f"Error running agent system: {str(e)}"
+
 
 def render_agent_chat():
     """Render the new agent-based chat interface"""
