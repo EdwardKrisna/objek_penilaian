@@ -1169,7 +1169,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                 if chunk.choices[0].delta.content:
                     full_response += chunk.choices[0].delta.content
                     response_container.markdown(full_response + "▌")
-            return full_response
+            # return full_response
             
         except Exception as e:
             return f"Maaf, terjadi kesalahan dalam memproses hasil: {str(e)}"
