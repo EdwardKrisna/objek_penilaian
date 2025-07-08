@@ -10,6 +10,8 @@ import plotly.express as px
 import requests
 import math
 import asyncio
+import re
+from concurrent.futures import ThreadPoolExecutor
 from agents import Agent, function_tool, Runner, set_default_openai_key
 from openai.types.responses import ResponseTextDeltaEvent
 
@@ -481,6 +483,79 @@ def execute_sql_query(sql_query: str) -> str:
     except Exception as e:
         return f"Error: {str(e)}"
 
+def extract_location_from_query(query: str) -> str:
+    """Extract location from user query"""
+    query_lower = query.lower()
+    
+    # Common patterns
+    patterns = [
+        r"di\s+(\w+)",  # "di bandung", "di jakarta"
+        r"proyek\s+(\w+)",  # "proyek bandung" 
+        r"(\w+)\s*\?",  # "bandung?"
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, query_lower)
+        if match:
+            return match.group(1)
+    
+    return None
+
+@function_tool
+def query_projects_count(location: str) -> str:
+    """Get project count for a location - NO LLM needed"""
+    try:
+        table_name = st.secrets["database"]["table_name"]
+        sql = f"""
+        SELECT COUNT(*) as count 
+        FROM {table_name} 
+        WHERE (wadmpr ILIKE '%{location}%' OR wadmkk ILIKE '%{location}%' OR wadmkc ILIKE '%{location}%')
+        """
+        
+        result_df, _ = st.session_state.db_connection.execute_query(sql)
+        count = result_df.iloc[0, 0] if len(result_df) > 0 else 0
+        
+        # Store for context
+        st.session_state.last_location = location
+        st.session_state.last_count = count
+        
+        return f"Ada {count} proyek di {location.title()}. Apakah Anda ingin saya buatkan peta lokasi proyek-proyek tersebut?"
+        
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@function_tool  
+def query_top_clients(limit: int = 10) -> str:
+    """Get top clients - NO LLM needed"""
+    try:
+        table_name = st.secrets["database"]["table_name"]
+        sql = f"""
+        SELECT pemberi_tugas, COUNT(*) as jumlah_proyek 
+        FROM {table_name} 
+        WHERE pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL'
+        GROUP BY pemberi_tugas 
+        ORDER BY COUNT(*) DESC 
+        LIMIT {limit}
+        """
+        
+        result_df, _ = st.session_state.db_connection.execute_query(sql)
+        
+        if len(result_df) > 0:
+            top_client = result_df.iloc[0]
+            response = f"Client terbesar adalah {top_client['pemberi_tugas']} dengan {top_client['jumlah_proyek']} proyek.\n\n"
+            response += "Top 5 clients:\n"
+            for idx, row in result_df.head(5).iterrows():
+                response += f"{idx+1}. {row['pemberi_tugas']}: {row['jumlah_proyek']} proyek\n"
+            
+            # Store for context
+            st.session_state.last_query_result = result_df
+            return response
+        else:
+            return "Tidak ada data client yang ditemukan."
+            
+    except Exception as e:
+        return f"Error: {str(e)}"
+
 def initialize_agents():
     """Initialize the agents"""
     
@@ -574,58 +649,31 @@ Generate ONLY the PostgreSQL query, no explanations.""",
     
     # Orchestrator Agent
     orchestrator_agent = Agent(
-        name="orchestrator_agent",
-        instructions="""You are RHR's AI assistant for property appraisal data analysis with conversation memory.
+    name="orchestrator_agent",
+    instructions="""You are RHR's AI assistant for complex property appraisal analysis.
 
-CORE CAPABILITIES:
-- Data queries and analysis
-- Map visualizations 
-- Chart creation
-- Finding nearby projects
-- Remember conversation context
+    NOTE: Simple queries like counting and top clients are handled automatically. 
+    You only receive complex queries that need multi-step reasoning.
 
-DECISION LOGIC - VERY IMPORTANT:
-1. For simple data questions (berapa, siapa, apa):
-   -> First use sql_query_builder to get SQL, then use execute_sql_query to run it
-   
-2. If user asks for "peta" or "map":
-   -> use create_map_visualization tool
-   
-3. If user asks for "grafik" or "chart":
-   -> use create_chart_visualization tool
+    AVAILABLE TOOLS:
+    - create_map_visualization: For location mapping
+    - create_chart_visualization: For data visualization  
+    - find_nearby_projects: For proximity searches
+    - sql_query_builder + execute_sql_query: For complex data analysis
 
-4. If user asks for "terdekat" or "nearby":
-   -> use find_nearby_projects tool
-
-CONVERSATION MEMORY RULES:
-- Pay attention to CONVERSATION CONTEXT provided in the input
-- Connect current requests to previous context
-- When user says referential words like "itu", "tersebut", "petanya", "yang tadi", refer back to conversation context
-- If user asks follow-up questions, use the same location/client/topic from previous context
-
-COMMON PATTERNS:
-- "berapa proyek di [location]" followed by "buatkan petanya" → create map for same location
-- "siapa client terbesar" followed by "detail yang pertama" → show details of top client
-- "proyek di jakarta" followed by "yang di jakarta selatan" → filter Jakarta projects to Jakarta Selatan
-
-RESPONSE STYLE:
-- Always respond in friendly Bahasa Indonesia
-- Acknowledge when you're using previous context: "Berdasarkan pertanyaan sebelumnya tentang..."
-- Provide business insights, not just technical details
-- Be conversational and helpful
-- When creating maps/charts, explain what you're showing and how it relates to previous conversation
-
-CRITICAL: 
-- When user asks for maps, ALWAYS use create_map_visualization tool
-- Use conversation context to determine the right location/filter for maps and queries
-- If context is unclear, ask for clarification rather than guessing""",
-        model="gpt-4.1-mini",
+    RESPONSE STYLE:
+    - Be conversational in Bahasa Indonesia
+    - Provide business insights
+    - Acknowledge when using conversation context""",
+        model="gpt-4.1-mini",  # Faster model
         tools=[
             sql_agent.as_tool(
                 tool_name="sql_query_builder",
-                tool_description="Build SQL queries to retrieve data from the RHR property database. Use for counting, listing, or getting raw data."
+                tool_description="Build complex SQL queries for advanced analysis"
             ),
             execute_sql_query,
+            query_projects_count,    # Add direct functions as backup
+            query_top_clients,       # Add direct functions as backup  
             create_map_visualization,
             create_chart_visualization,
             find_nearby_projects
@@ -707,53 +755,107 @@ def initialize_geocode_service():
         st.session_state.geocode_service = None
         return None
 
+def smart_route_query(query: str) -> tuple:
+    """Route simple queries directly, complex ones to agents"""
+    query_lower = query.lower()
+    
+    # Pattern 1: Count queries
+    if any(pattern in query_lower for pattern in ["berapa proyek di", "ada berapa proyek", "jumlah proyek di"]):
+        location = extract_location_from_query(query)
+        if location:
+            return "direct", ("count", location)
+    
+    # Pattern 2: Top clients  
+    if any(pattern in query_lower for pattern in ["client terbesar", "klien terbesar", "pemberi tugas terbesar"]):
+        return "direct", ("top_clients", None)
+    
+    # Pattern 3: Map requests with context
+    if any(pattern in query_lower for pattern in ["buatkan peta", "tampilkan peta", "petanya"]) and hasattr(st.session_state, 'last_location'):
+        return "direct", ("map", st.session_state.last_location)
+    
+    # Pattern 4: Complex queries go to agents
+    return "agents", None
+
+async def execute_direct_query(query_type: str, location: str = None) -> str:
+    """Execute direct queries without LLM calls"""
+    if query_type == "count":
+        return query_projects_count(location)
+    elif query_type == "top_clients":
+        return query_top_clients()
+    elif query_type == "map":
+        return create_map_visualization(location=location, title=f"Peta Proyek {location.title()}")
+    else:
+        return "Query type tidak dikenali"
+
 async def process_user_query(query: str, orchestrator_agent: Agent) -> str:
-    """Process user query using the orchestrator agent with conversation history"""
+    """Process user query with smart routing and parallel processing"""
     try:
-        # Build conversation context from chat history
-        conversation_context = ""
-        if hasattr(st.session_state, 'chat_messages') and len(st.session_state.chat_messages) > 1:
-            # Get last 6 messages (3 exchanges) for context
-            recent_messages = st.session_state.chat_messages[-6:]
-            context_parts = []
-            
-            for msg in recent_messages:
-                if msg['role'] == 'user':
-                    context_parts.append(f"User previously asked: {msg['content']}")
-                elif msg['role'] == 'assistant':
-                    # Extract key info from assistant responses
-                    content = msg['content']
-                    if 'proyek' in content and any(num in content for num in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']):
-                        context_parts.append(f"Assistant found: {content[:100]}...")
-            
-            if context_parts:
-                conversation_context = "\n".join(context_parts[-4:])  # Last 4 context items
+        # Step 1: Smart routing
+        route_type, route_data = smart_route_query(query)
         
-        # Add conversation context to the query
-        enhanced_query = query
-        if conversation_context:
-            enhanced_query = f"""CONVERSATION CONTEXT:
+        if route_type == "direct":
+            # Direct execution - NO LLM calls needed
+            query_type, location = route_data
+            
+            # Create containers for parallel display
+            response_container = st.empty()
+            
+            with st.spinner("Memproses query..."):
+                # Execute in thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
+                with ThreadPoolExecutor() as executor:
+                    result = await loop.run_in_executor(
+                        executor, 
+                        lambda: execute_direct_query(query_type, location)
+                    )
+            
+            response_container.markdown(result)
+            return result
+        
+        else:
+            # Complex queries - use agents with streaming
+            conversation_context = ""
+            if hasattr(st.session_state, 'chat_messages') and len(st.session_state.chat_messages) > 1:
+                recent_messages = st.session_state.chat_messages[-4:]
+                context_parts = []
+                
+                for msg in recent_messages:
+                    if msg['role'] == 'user':
+                        context_parts.append(f"User: {msg['content']}")
+                    elif msg['role'] == 'assistant' and len(msg['content']) < 200:
+                        context_parts.append(f"Assistant: {msg['content']}")
+                
+                if context_parts:
+                    conversation_context = "\n".join(context_parts)
+            
+            # Enhanced query with context
+            enhanced_query = query
+            if conversation_context:
+                enhanced_query = f"""CONVERSATION CONTEXT:
 {conversation_context}
 
-CURRENT USER REQUEST: {query}
+CURRENT REQUEST: {query}
 
-Please use the conversation context to understand what the user is referring to. For example:
-- If they previously asked about "proyek di bandung" and now say "buatkan petanya", create a map of Bandung projects
-- If they asked about "client terbesar" and now say "detail yang pertama", show details of the top client
-- Connect follow-up questions to previous context appropriately"""
-        
-        # Create empty container for streaming text
-        response_container = st.empty()
-        full_response = ""
-        result = Runner.run_streamed(orchestrator_agent, input=enhanced_query)
-        async for event in result.stream_events():
-            if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
-                full_response += event.data.delta
-                # Let Streamlit handle the display
-                
-        return full_response  # Return without displaying
+Use context appropriately for follow-up questions."""
+            
+            # Streaming response
+            response_container = st.empty()
+            full_response = ""
+            
+            # Run agent with streaming
+            result = Runner.run_streamed(orchestrator_agent, input=enhanced_query)
+            async for event in result.stream_events():
+                if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
+                    full_response += event.data.delta
+                    response_container.markdown(full_response + "▌")
+            
+            response_container.markdown(full_response)
+            return full_response
+            
     except Exception as e:
-        return f"Error processing query: {str(e)}"
+        error_msg = f"Error processing query: {str(e)}"
+        st.error(error_msg)
+        return error_msg
 
 def render_ai_chat():
     """Render AI chat interface using agents"""
