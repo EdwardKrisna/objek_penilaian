@@ -268,6 +268,63 @@ class RHRAIChat:
         self.table_name = table_name
         self.geocode_service = geocode_service
         self.context_manager = ConversationContextManager()
+        # Add conversation memory
+        self.conversation_history = []
+        self.last_query_context = None
+    
+    def add_to_conversation_memory(self, user_input: str, ai_response: str, query_result: pd.DataFrame = None, sql_query: str = None):
+        """Add exchange to conversation memory"""
+        memory_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'user_input': user_input,
+            'ai_response': ai_response,
+            'has_data': query_result is not None and len(query_result) > 0,
+            'sql_query': sql_query,
+            'data_summary': None
+        }
+        
+        # Add data summary for context
+        if query_result is not None and len(query_result) > 0:
+            memory_entry['data_summary'] = {
+                'record_count': len(query_result),
+                'columns': list(query_result.columns),
+                'sample_values': {}
+            }
+            
+            # Add sample values for key columns
+            for col in ['wadmpr', 'wadmkk', 'pemberi_tugas', 'jenis_objek_text']:
+                if col in query_result.columns:
+                    memory_entry['data_summary']['sample_values'][col] = query_result[col].value_counts().head(3).to_dict()
+        
+        self.conversation_history.append(memory_entry)
+        
+        # Keep only last 5 exchanges to avoid token limits
+        if len(self.conversation_history) > 5:
+            self.conversation_history = self.conversation_history[-5:]
+    
+    def get_conversation_context(self) -> str:
+        """Generate conversation context for AI"""
+        if not self.conversation_history:
+            return ""
+        
+        context_parts = ["RECENT CONVERSATION CONTEXT:"]
+        
+        for entry in self.conversation_history[-3:]:  # Last 3 exchanges
+            context_parts.append(f"User: {entry['user_input']}")
+            
+            if entry['has_data'] and entry['data_summary']:
+                summary = entry['data_summary']
+                context_parts.append(f"AI generated query that returned {summary['record_count']} records")
+                
+                # Add location context if available
+                if 'wadmpr' in summary['sample_values']:
+                    provinces = list(summary['sample_values']['wadmpr'].keys())
+                    context_parts.append(f"Primary locations: {', '.join(provinces[:2])}")
+                if 'wadmkk' in summary['sample_values']:
+                    cities = list(summary['sample_values']['wadmkk'].keys())
+                    context_parts.append(f"Primary cities: {', '.join(cities[:2])}")
+        
+        return "\n".join(context_parts)
     
     def calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate the great circle distance between two points on Earth (in kilometers)"""
@@ -778,95 +835,119 @@ Anda dapat melakukan filtering dengan mengatakan:
         return None
     
     def generate_query(self, user_question: str, geographic_context: str = "") -> str:
+    
+        # Get conversation context
+        conversation_context = self.get_conversation_context()
+        
+        # Enhanced system prompt with conversation context built-in
         system_prompt = f"""
-You are a strict SQL-only assistant for the RHR property appraisal database.
-You have three helper functions:
+    You are a strict SQL-only assistant for the RHR property appraisal database with CONVERSATION MEMORY.
 
-  create_map_visualization(sql_query: string, title: string)
-    → Returns a map of properties when called.
-    
-  find_nearby_projects(location_name: string, radius_km: float, title: string)
-    → Finds and maps projects near a specific location within given radius.
-    
-  create_chart_visualization(chart_type: string, sql_query: string, title: string, x_column: string, color_column ,y_column: string: string)
-    → Creates various charts (bar, pie, line, scatter, histogram) from data.
+    RECENT CONVERSATION CONTEXT:
+    {conversation_context}
 
-**RULES**  
-- If the user asks for charts/graphs ("grafik", "chart", "barchart", "pie", etc.), use `create_chart_visualization` function.
-- If the user asks for projects near a specific location, use `find_nearby_projects` function.
-- If the user asks for a general map, use `create_map_visualization` function.  
-- Otherwise return *only* a PostgreSQL query (no explanations).
+    CRITICAL MEMORY RULES:
+    1. If user asks for visualization of previous data (e.g., "buatkan petanya", "buatkan grafik"), use the SAME filters from the last query
+    2. If user says "tersebut", "itu", "tadi" - they're referring to the last result
+    3. When creating maps/charts of previous results, maintain the geographic or filter context
+    4. If last query was about "Bandung", and user asks "buatkan petanya", show map of Bandung projects only
+    5. ALWAYS look at the conversation context to understand what "petanya" or "grafiknya" refers to
 
-TABLE: {self.table_name}
+    You have three helper functions:
 
-DETAILED COLUMN INFORMATION:
+    create_map_visualization(sql_query: string, title: string)
+        → Returns a map of properties when called.
+        
+    find_nearby_projects(location_name: string, radius_km: float, title: string)
+        → Finds and maps projects near a specific location within given radius.
+        
+    create_chart_visualization(chart_type: string, sql_query: string, title: string, x_column: string, color_column ,y_column: string: string)
+        → Creates various charts (bar, pie, line, scatter, histogram) from data.
 
-Project Information:
-- sumber (text): Data source (e.g., "kontrak" = contract-based projects)
-- pemberi_tugas (text): Client/Task giver (e.g., "PT Asuransi Jiwa IFG", "PT Perkebunan Nusantara II")
-- no_kontrak (text): Contract number (e.g., "RHR00C1P0623111.0")
-- nama_lokasi (text): Location name (e.g., "Lokasi 20", "Lokasi 3")
-- alamat_lokasi (text): Address detail (e.g., "Jalan Kampung Melayu Kecil I No.89, RT 013 / RW 10)
-- id (int8): Unique project identifier (e.g., 16316, 17122) - PRIMARY KEY
+    **RULES**  
+    - If the user asks for charts/graphs ("grafik", "chart", "barchart", "pie", etc.), use `create_chart_visualization` function. If user asks for charts/graphs of previous data, use the same WHERE conditions from conversation context
+    - If the user asks for projects near a specific location, use `find_nearby_projects` function. If user asks for maps of previous data, use the same location filters from conversation context
+    - If the user asks for a general map, use `create_map_visualization` function.  
+    - Otherwise return *only* a PostgreSQL query (no explanations).
 
-Property Information:
-- objek_penilaian (text): Appraisal object type (e.g., "real properti")
-- nama_objek (text): Object name (e.g., "Rumah", "Tanah Kosong")
-- jenis_objek_text (text): Object type (e.g., "Hotel", "Aset Tak Berwujud")
-- kepemilikan (text): Ownership type (e.g., "tunggal" = single ownership)
-- keterangan (text): Additional notes (e.g., "Luas Tanah : 1.148", ect.)
+    TABLE: {self.table_name}
 
-Project Information:
-- penilaian_ke (text): How many times the project taken (e.g., "1" = once , "2" = twice)
-- penugasan_text (text): Project task type or 'Penugasan Penilaian' (e.g., "Penilaian Aset")
-- tujuan_text (text): Project objective/purpose or 'Tujuan Penilaian' (e.g., "Penjaminan Hutang")
+    DETAILED COLUMN INFORMATION:
 
-Status & Management:
-- status_text (text): Project status (e.g., "Inspeksi", "Penunjukan PIC")
-- cabang_text (text): Cabang name (e.g., "Cabang Bali", "Cabang Jakarta")
-- jc_text (text): Job captain or 'jc' (e.g., "IMW","FHM")
+    Project Information:
+    - sumber (text): Data source (e.g., "kontrak" = contract-based projects)
+    - pemberi_tugas (text): Client/Task giver (e.g., "PT Asuransi Jiwa IFG", "PT Perkebunan Nusantara II")
+    - no_kontrak (text): Contract number (e.g., "RHR00C1P0623111.0")
+    - nama_lokasi (text): Location name (e.g., "Lokasi 20", "Lokasi 3")
+    - alamat_lokasi (text): Address detail (e.g., "Jalan Kampung Melayu Kecil I No.89, RT 013 / RW 10)
+    - id (int8): Unique project identifier (e.g., 16316, 17122) - PRIMARY KEY
 
-Geographic Data:
-- latitude (float8): Latitude coordinates (e.g., -6.236507782741299)
-- longitude (float8): Longitude coordinates (e.g., 106.86356067983168)
-- geometry (geometry): PostGIS geometry field (binary spatial data)
-- wadmpr (text): Province (e.g., "DKI Jakarta", "Sumatera Utara")
-- wadmkk (text): Regency/City (e.g., "Kota Administrasi Jakarta Selatan", "Deli Serdang")
-- wadmkc (text): District (e.g., "Tebet", "Labuhan Deli")
+    Property Information:
+    - objek_penilaian (text): Appraisal object type (e.g., "real properti")
+    - nama_objek (text): Object name (e.g., "Rumah", "Tanah Kosong")
+    - jenis_objek_text (text): Object type (e.g., "Hotel", "Aset Tak Berwujud")
+    - kepemilikan (text): Ownership type (e.g., "tunggal" = single ownership)
+    - keterangan (text): Additional notes (e.g., "Luas Tanah : 1.148", ect.)
 
-CRITICAL SQL RULES:
-1. For counting: SELECT COUNT(*) FROM {self.table_name} WHERE...
-2. For samples: SELECT id, [columns] FROM {self.table_name} WHERE... ORDER BY id DESC LIMIT 5
-3. For grouping: SELECT [column], COUNT(*) FROM {self.table_name} WHERE [column] IS NOT NULL AND [column] != '' AND [column] != 'NULL' GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
-4. Handle NULLs ONLY for the specific column being queried/grouped, NOT for the entire row
-5. For samples/details: Always include 'id' column so users can reference specific records later
-6. When filtering: Filter only the target column, keep other columns even if they have NULLs
-7. For numeric columns: Use "WHERE column IS NOT NULL AND column != 0" when 0 is not meaningful
-8. For coordinates: Use "WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0"
-9. Text search: Use "ILIKE '%text%'" for case-insensitive search with NULL handling
-10. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%') AND wadmpr IS NOT NULL"
-11. Always add LIMIT to prevent large result sets
-12. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns with NULL filtering
-13. Use direct column names (no JOINs needed as all data is in main table)
-14. MANDATORY: Filter out NULL, empty strings, and 'NULL' text values in WHERE clauses
+    Project Information:
+    - penilaian_ke (text): How many times the project taken (e.g., "1" = once , "2" = twice)
+    - penugasan_text (text): Project task type or 'Penugasan Penilaian' (e.g., "Penilaian Aset")
+    - tujuan_text (text): Project objective/purpose or 'Tujuan Penilaian' (e.g., "Penjaminan Hutang")
 
-CONTEXT AWARENESS RULES:
-- Remember previous query results and their IDs for follow-up questions
-- When user says "yang pertama" (first one), use the first ID from last result
-- When user says "yang terakhir" (last one), use the last ID from last result
-- When user asks about "client pertama" (first client), get all projects from first client in last result
-- When user filters previous results (e.g., "yang di jakarta selatan"), apply filter to previous IDs
-- For positional references, always use the ID from the corresponding position in last result
-- For comparative references (biggest, smallest), find the appropriate record from last result
-- For status filtering ("yang completed"), filter previous IDs by status
-- For geographic filtering ("yang di jakarta selatan"), filter previous IDs by location
+    Status & Management:
+    - status_text (text): Project status (e.g., "Inspeksi", "Penunjukan PIC")
+    - cabang_text (text): Cabang name (e.g., "Cabang Bali", "Cabang Jakarta")
+    - jc_text (text): Job captain or 'jc' (e.g., "IMW","FHM")
 
-Generate ONLY the PostgreSQL query, no explanations."""
+    Geographic Data:
+    - latitude (float8): Latitude coordinates (e.g., -6.236507782741299)
+    - longitude (float8): Longitude coordinates (e.g., 106.86356067983168)
+    - geometry (geometry): PostGIS geometry field (binary spatial data)
+    - wadmpr (text): Province (e.g., "DKI Jakarta", "Sumatera Utara")
+    - wadmkk (text): Regency/City (e.g., "Kota Administrasi Jakarta Selatan", "Deli Serdang")
+    - wadmkc (text): District (e.g., "Tebet", "Labuhan Deli")
 
-        # Check for chart/graph requests
-        is_chart_request = bool(re.search(r"\b(grafik|chart|barchart|pie|line|scatter|histogram|graph|visualisasi data)\b", user_question, re.I))
-        is_nearby_request = bool(re.search(r"\b(terdekat|sekitar|dekat|nearby|near)\b", user_question, re.I))
-        is_map_request = bool(re.search(r"\b(map|peta|visualisasi lokasi)\b", user_question, re.I))
+    CRITICAL SQL RULES:
+    1. For counting: SELECT COUNT(*) FROM {self.table_name} WHERE...
+    2. For samples: SELECT id, [columns] FROM {self.table_name} WHERE... ORDER BY id DESC LIMIT 5
+    3. For grouping: SELECT [column], COUNT(*) FROM {self.table_name} WHERE [column] IS NOT NULL AND [column] != '' AND [column] != 'NULL' GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
+    4. Handle NULLs ONLY for the specific column being queried/grouped, NOT for the entire row
+    5. For samples/details: Always include 'id' column so users can reference specific records later
+    6. When filtering: Filter only the target column, keep other columns even if they have NULLs
+    7. For numeric columns: Use "WHERE column IS NOT NULL AND column != 0" when 0 is not meaningful
+    8. For coordinates: Use "WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0"
+    9. Text search: Use "ILIKE '%text%'" for case-insensitive search with NULL handling
+    10. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%') AND wadmpr IS NOT NULL"
+    11. Always add LIMIT to prevent large result sets
+    12. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns with NULL filtering
+    13. Use direct column names (no JOINs needed as all data is in main table)
+    14. MANDATORY: Filter out NULL, empty strings, and 'NULL' text values in WHERE clauses
+
+    CONTEXT AWARENESS RULES:
+    - Remember previous query results and their IDs for follow-up questions
+    - When user says "yang pertama" (first one), use the first ID from last result
+    - When user says "yang terakhir" (last one), use the last ID from last result
+    - When user asks about "client pertama" (first client), get all projects from first client in last result
+    - When user filters previous results (e.g., "yang di jakarta selatan"), apply filter to previous IDs
+    - For positional references, always use the ID from the corresponding position in last result
+    - For comparative references (biggest, smallest), find the appropriate record from last result
+    - For status filtering ("yang completed"), filter previous IDs by status
+    - For geographic filtering ("yang di jakarta selatan"), filter previous IDs by location
+
+    CONVERSATION-AWARE EXAMPLES:
+    User: "berapa proyek di bandung?"
+    AI generates: SELECT COUNT(*) FROM table WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%')
+
+    User: "buatkan petanya"  
+    AI should understand this refers to Bandung projects and generate:
+    create_map_visualization("SELECT id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') AND latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0", "Peta Proyek di Bandung")
+
+    Generate ONLY the PostgreSQL query or function call, no explanations."""
+        
+        # Check for chart/graph requests - more comprehensive detection
+        is_chart_request = bool(re.search(r"\b(grafik|chart|barchart|pie|line|scatter|histogram|graph|visualisasi data|buatkan grafik)\b", user_question, re.I))
+        is_nearby_request = bool(re.search(r"\b(terdekat|sekitar|dekat|nearby|near|radius)\b", user_question, re.I))
+        is_map_request = bool(re.search(r"\b(map|peta|visualisasi lokasi|buatkan peta|petanya)\b", user_question, re.I))
 
         tools = [
             {
@@ -940,7 +1021,7 @@ Generate ONLY the PostgreSQL query, no explanations."""
                         }
                     },
                     "required": ["chart_type", "sql_query", "title",
-                                  "x_column", "y_column",
+                                "x_column", "y_column",
                                     "color_column"
                                     ],
                     "additionalProperties": False
@@ -949,20 +1030,25 @@ Generate ONLY the PostgreSQL query, no explanations."""
             }
         ]
 
+        # Fixed message structure - no duplication
         messages = [
             {"role": "system", "content": system_prompt}
         ]
+        
+        # Add geographic context if available
         if geographic_context:
-            messages.append({"role": "user", "content": geographic_context})
+            messages.append({"role": "user", "content": f"Geographic Filter: {geographic_context}"})
+        
+        # Add the user question only once
         messages.append({"role": "user", "content": user_question})
 
-        # Determine which function to use
+        # Determine which function to use - more specific logic
         tool_choice = "auto"
-        if is_chart_request:
+        if is_chart_request and not is_map_request:
             tool_choice = {"type": "function", "name": "create_chart_visualization"}
-        elif is_nearby_request and is_map_request:
+        elif is_nearby_request:
             tool_choice = {"type": "function", "name": "find_nearby_projects"}
-        elif is_map_request and not is_nearby_request:
+        elif is_map_request:
             tool_choice = {"type": "function", "name": "create_map_visualization"}
 
         response = self.client.responses.create(
@@ -1493,33 +1579,33 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
             return f"Error mencari proyek terdekat: {str(e)}"
 
     def process_user_input(self, user_question: str, geographic_context: str = ""):
-        """Enhanced main method with context handling"""
+        """Enhanced main method with conversation memory"""
         
-        # Step 1: Classify intent
+        # Step 1: Classify intent (keep existing logic)
         intent_result = self.classify_user_intent(user_question)
         intent = intent_result.get('intent', 'data_query')
-        confidence = intent_result.get('confidence', 0.5)
-        context_type = intent_result.get('context_type')
         
-        # Show debug info if enabled
-        if st.session_state.get('debug_mode', False):
-            st.info(f"🔍 Intent: {intent} (confidence: {confidence:.2f}) - {intent_result.get('reasoning', '')}")
-            if context_type:
-                st.info(f"📋 Context Type: {context_type}")
-        
-        # Step 2: Route based on intent
+        # Step 2: Process based on intent
         if intent == 'context_reference':
-            return self.handle_context_reference(user_question, context_type)
-        
+            result_type, response = self.handle_context_reference(user_question, intent_result.get('context_type'))
         elif intent == 'chat' or intent == 'system_info':
             response = self.handle_chat_conversation(user_question)
-            return intent, response
-            
-        elif intent == 'data_query':
-            return self.handle_data_query(user_question, geographic_context)
-        
+            result_type = intent
         else:
-            return self.handle_data_query(user_question, geographic_context)
+            result_type, response = self.handle_data_query(user_question, geographic_context)
+        
+        # Step 3: Add to conversation memory
+        query_result = st.session_state.get('last_query_result')
+        sql_query = getattr(st.session_state, 'last_sql_query', None)
+        
+        self.add_to_conversation_memory(
+            user_question, 
+            response, 
+            query_result, 
+            sql_query
+        )
+        
+        return result_type, response
     
     def handle_data_query(self, user_question: str, geographic_context: str = ""):
         """Handle data-related queries"""
@@ -1565,6 +1651,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                                 st.dataframe(result_df, use_container_width=True)
                             
                             st.session_state.last_query_result = result_df
+                            st.session_state.last_sql_query = sql_query  # Add this line
                             formatted_response = self.format_response(user_question, result_df, sql_query)
                             return 'data_query', formatted_response
                         else:
@@ -1947,14 +2034,11 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
     
     # Chat input
     if prompt := st.chat_input("Ask me about your projects or just chat..."):
-        # Add user message
         st.session_state.chat_messages.append({"role": "user", "content": prompt})
         
-        # Display user message
         with st.chat_message("user"):
             st.markdown(prompt)
         
-        # Generate AI response
         with st.chat_message("assistant"):
             try:
                 # Build geographic context
@@ -1984,7 +2068,7 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
                 error_msg = f"Maaf, terjadi kesalahan: {str(e)}"
                 st.error(error_msg)
                 st.session_state.chat_messages.append({
-                    "role": "assistant",
+                    "role": "assistant", 
                     "content": error_msg
                 })
     
@@ -2082,5 +2166,4 @@ def main():
         st.sidebar.info(f"Chat Messages: {len(st.session_state.chat_messages)}")
 
 if __name__ == "__main__":
-    main()
-            
+    main() 
