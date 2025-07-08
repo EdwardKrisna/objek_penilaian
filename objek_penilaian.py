@@ -1169,7 +1169,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                 if chunk.choices[0].delta.content:
                     full_response += chunk.choices[0].delta.content
                     response_container.markdown(full_response + "▌")
-            # return full_response
+            return full_response
             
         except Exception as e:
             return f"Maaf, terjadi kesalahan dalam memproses hasil: {str(e)}"
@@ -1986,9 +1986,9 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                         map_df = self.prepare_map_data(result_df)
                         
                         if map_df is not None and len(map_df) > 0:
-                            # FIND THIS SECTION AND MAKE SURE IT INCLUDES 'type':
+                            # ENSURE this structure is EXACTLY like this
                             viz_data = {
-                                'type': 'map',  # ← ADD THIS LINE IF MISSING
+                                'type': 'map',  # This must be present
                                 'map_data': map_df.to_dict('records'),
                                 'title': title,
                                 'center_lat': float(map_df['latitude'].mean()),
@@ -2040,8 +2040,9 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     result_df, query_msg = self.db_connection.execute_query(sql_query)
                     
                     if result_df is not None and len(result_df) > 0:
+                        # ENSURE this structure is EXACTLY like this
                         viz_data = {
-                            'type': 'chart',  # ← MAKE SURE THIS LINE EXISTS
+                            'type': 'chart',  # This must be present
                             'chart_data': result_df.to_dict('records'),
                             'chart_type': chart_type,
                             'title': chart_title,
@@ -2166,19 +2167,21 @@ def render_stored_visualization_cached(viz_data: dict, message_index: int):
     # Create a unique key for this visualization
     viz_key = f"viz_{message_index}_{hash(str(viz_data))}"
     
-    # Check if we already rendered this visualization
-    if f"rendered_{viz_key}" in st.session_state:
-        return
-    
     try:
-        # ADD VALIDATION FOR viz_data STRUCTURE
+        # Validate viz_data structure
         if not isinstance(viz_data, dict):
             st.error(f"Invalid visualization data type: {type(viz_data)}")
             return
         
+        # Auto-detect type if missing
         if 'type' not in viz_data:
-            st.error(f"Missing 'type' field in visualization data. Available keys: {list(viz_data.keys())}")
-            return
+            if 'map_data' in viz_data:
+                viz_data['type'] = 'map'
+            elif 'chart_data' in viz_data:
+                viz_data['type'] = 'chart'
+            else:
+                st.error(f"Cannot determine visualization type. Available keys: {list(viz_data.keys())}")
+                return
         
         viz_type = viz_data['type']
         
@@ -2240,7 +2243,8 @@ def render_stored_visualization_cached(viz_data: dict, message_index: int):
                 title=viz_data.get('title', 'Property Map')
             )
             
-            st.plotly_chart(fig, use_container_width=True, key=viz_key)
+            # Use a unique key for each visualization
+            st.plotly_chart(fig, use_container_width=True, key=f"map_{message_index}_{hash(str(viz_data))}")
             
         elif viz_type == 'chart':
             # Validate chart data structure
@@ -2284,14 +2288,15 @@ def render_stored_visualization_cached(viz_data: dict, message_index: int):
                     margin=dict(l=50, r=50, t=60, b=50)
                 )
                 
-                st.plotly_chart(fig, use_container_width=True, key=viz_key)
+                # Use a unique key for each visualization
+                st.plotly_chart(fig, use_container_width=True, key=f"chart_{message_index}_{hash(str(viz_data))}")
         
         else:
             st.error(f"Unknown visualization type: {viz_type}")
             return
         
-        # Mark this visualization as rendered
-        st.session_state[f"rendered_{viz_key}"] = True
+        # OPTIONAL: Mark as rendered for debugging
+        # st.session_state[f"rendered_{viz_key}"] = True
         
     except Exception as e:
         st.error(f"Error rendering stored visualization: {str(e)}")
@@ -2418,7 +2423,16 @@ def render_ai_chat():
     """Optimized chat interface with better performance"""
     st.markdown('<div class="section-header">AI Chat</div>', unsafe_allow_html=True)
     
-    # Use cached AI client (which includes database connection)
+    # Use cached database connection
+    db_connection = get_database_connection()
+    if not db_connection:
+        st.error("Database connection failed")
+        return
+    
+    # Store in session state for AI chat to use
+    st.session_state.db_connection = db_connection
+    
+    # Use cached AI client
     if 'ai_chat' not in st.session_state:
         st.session_state.ai_chat = get_ai_chat_client()
     
@@ -2463,43 +2477,44 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
             "visualization": None
         })
     
-    # Optimized chat history display
+    # Display chat history with embedded visualizations
     for i, message in enumerate(st.session_state.chat_messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
             
-            # Render visualization with caching
+            # Render visualization if present
             if message.get("visualization"):
                 render_stored_visualization_cached(message["visualization"], i)
     
     # Chat input processing (only when new message is sent)
     if prompt := st.chat_input("Ask me about your projects or just chat..."):
-        # Add user message
+        # Add user message to history first
         st.session_state.chat_messages.append({
             "role": "user", 
             "content": prompt,
             "visualization": None
         })
         
-        # Process only the new message
+        # Display user message immediately
         with st.chat_message("user"):
             st.markdown(prompt)
         
+        # Process the assistant response
         with st.chat_message("assistant"):
             try:
                 geo_context = st.session_state.ai_chat.get_geographic_context_cached()
                 
                 # Process user input
-                _, final_response, viz_data = st.session_state.ai_chat.process_user_input(prompt, geo_context)
+                intent, final_response, viz_data = st.session_state.ai_chat.process_user_input(prompt, geo_context)
                 
-                # Display response
+                # Display response immediately
                 st.markdown(final_response)
                 
                 # Display visualization if present
                 if viz_data:
                     render_stored_visualization_cached(viz_data, len(st.session_state.chat_messages))
                 
-                # Add assistant response to history
+                # ONLY add to history AFTER displaying (no re-run needed)
                 st.session_state.chat_messages.append({
                     "role": "assistant",
                     "content": final_response,
@@ -2522,11 +2537,17 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
     with col1:
         if st.button("Clear Chat", use_container_width=True):
             st.session_state.chat_messages = []
-            # Clear visualization rendering cache
-            keys_to_delete = [key for key in st.session_state.keys() if key.startswith("rendered_viz_")]
+            # Clear ALL visualization related cache
+            keys_to_delete = [key for key in st.session_state.keys() if key.startswith("rendered_")]
             for key in keys_to_delete:
                 del st.session_state[key]
+            # Also clear any other visualization state
+            if 'last_query_result' in st.session_state:
+                del st.session_state.last_query_result
+            if 'last_map_data' in st.session_state:
+                del st.session_state.last_map_data
             st.rerun()
+
     
     with col2:
         if st.button("Reset Context", use_container_width=True):
@@ -2540,7 +2561,7 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
             for key in keys_to_delete:
                 del st.session_state[key]
             
-            # ADD THIS LINE to also clear geographic context cache:
+            # Clear geographic context cache
             geo_keys_to_delete = [key for key in st.session_state.keys() if key.startswith("geo_context_")]
             for key in geo_keys_to_delete:
                 del st.session_state[key]
