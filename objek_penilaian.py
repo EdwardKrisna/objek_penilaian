@@ -1986,9 +1986,9 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                         map_df = self.prepare_map_data(result_df)
                         
                         if map_df is not None and len(map_df) > 0:
-                            # ENSURE PROPER STRUCTURE WITH 'type' FIELD
+                            # FIND THIS SECTION AND MAKE SURE IT INCLUDES 'type':
                             viz_data = {
-                                'type': 'map',  # Make sure this is always present
+                                'type': 'map',  # ← ADD THIS LINE IF MISSING
                                 'map_data': map_df.to_dict('records'),
                                 'title': title,
                                 'center_lat': float(map_df['latitude'].mean()),
@@ -2015,13 +2015,12 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     else:
                         return 'data_query', f"Tidak dapat membuat peta: {query_msg}", None
                         
-                except json.JSONDecodeError as e:
-                    return 'data_query', f"Error parsing map parameters: {str(e)}", None
                 except Exception as e:
                     return 'data_query', f"Error creating map: {str(e)}", None
             
             elif output_item.name == "create_chart_visualization":
                 try:
+                    # Similar fix for charts
                     args = json.loads(output_item.arguments)
                     chart_type = args.get("chart_type", "bar")
                     sql_query = args.get("sql_query")
@@ -2041,9 +2040,8 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     result_df, query_msg = self.db_connection.execute_query(sql_query)
                     
                     if result_df is not None and len(result_df) > 0:
-                        # ENSURE PROPER STRUCTURE WITH 'type' FIELD
                         viz_data = {
-                            'type': 'chart',  # Make sure this is always present
+                            'type': 'chart',  # ← MAKE SURE THIS LINE EXISTS
                             'chart_data': result_df.to_dict('records'),
                             'chart_type': chart_type,
                             'title': chart_title,
