@@ -550,11 +550,14 @@ CRITICAL SQL RULES:
 7. For numeric columns: Use "WHERE column IS NOT NULL AND column != 0" when 0 is not meaningful
 8. For coordinates: Use "WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0"
 9. Text search: Use "ILIKE '%text%'" for case-insensitive search with NULL handling
-10. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%') AND wadmpr IS NOT NULL"
-11. Always add LIMIT to prevent large result sets
-12. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns with NULL filtering
-13. Use direct column names (no JOINs needed as all data is in main table)
-14. MANDATORY: Filter out NULL, empty strings, and 'NULL' text values in WHERE clauses
+10. Always add LIMIT to prevent large result sets
+11. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns with NULL filtering
+12. Use direct column names (no JOINs needed as all data is in main table)
+13. MANDATORY: Filter out NULL, empty strings, and 'NULL' text values in WHERE clauses
+
+LOCATION MAPPING RULES:
+- "bali" -> (wadmpr ILIKE '%bali%' OR wadmkk ILIKE '%bali%' OR wadmkc ILIKE '%bali%')
+- "jakarta" -> (wadmpr ILIKE '%jakarta%' OR wadmkk ILIKE '%jakarta%' OR wadmkc ILIKE '%jakarta%')
 
 CONTEXT AWARENESS RULES:
 - Remember previous query results and their IDs for follow-up questions
