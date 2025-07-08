@@ -2455,7 +2455,7 @@ def render_geographic_filter():
 
 
 def render_ai_chat():
-    """Fixed chat interface without double output"""
+    """Optimized chat interface with better performance"""
     st.markdown('<div class="section-header">AI Chat</div>', unsafe_allow_html=True)
     
     # Use cached database connection
@@ -2464,6 +2464,7 @@ def render_ai_chat():
         st.error("Database connection failed")
         return
     
+    # Store in session state for AI chat to use
     st.session_state.db_connection = db_connection
     
     # Use cached AI client
@@ -2480,12 +2481,30 @@ def render_ai_chat():
         welcome_msg = """Halo! Saya asisten AI RHR Anda 👋
 
 Saya dapat membantu Anda dengan:
-- 📊 Analisis data proyek
-- 🗺️ Visualisasi lokasi  
-- 📈 Grafik dan chart
-- 💬 Percakapan umum
 
-Apa yang ingin Anda ketahui hari ini?"""
+**📊 Analisis Data:**
+- "Berapa banyak proyek yang kita miliki di Jakarta?"
+- "Siapa 5 klien utama kita?"
+- "Jenis properti apa yang paling sering kita nilai?"
+
+**🗺️ Visualisasi Lokasi:**
+- "Buatkan peta proyek terdekat dari Setiabudi One dengan radius 1 km"
+- "Tampilkan proyek sekitar Mall Taman Anggrek dalam radius 500 m"
+
+**📈 Grafik dan Chart:**
+- "Buatkan grafik pemberi tugas di tiap cabang"
+- "Grafik pie untuk jenis objek penilaian"
+
+**💬 Percakapan Umum:**
+- Bertanya tentang fitur sistem
+- Minta bantuan atau penjelasan
+
+**🔍 Follow-up Contextual:**
+- "Buatkan tabel dari data tersebut"
+- "Detail lengkap yang pertama"
+- "Yang di Jakarta Selatan"
+
+Apa yang ingin Anda ketahui atau lakukan hari ini?"""
         
         st.session_state.chat_messages.append({
             "role": "assistant",
@@ -2493,7 +2512,7 @@ Apa yang ingin Anda ketahui hari ini?"""
             "visualization": None
         })
     
-    # Display ALL existing chat messages (including any just added)
+    # Display chat history with embedded visualizations
     for i, message in enumerate(st.session_state.chat_messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
@@ -2502,37 +2521,49 @@ Apa yang ingin Anda ketahui hari ini?"""
             if message.get("visualization"):
                 render_stored_visualization_cached(message["visualization"], i)
     
-    # Handle new user input
+    # Chat input processing (only when new message is sent)
     if prompt := st.chat_input("Ask me about your projects or just chat..."):
-        # Add user message to history
+        # Add user message to history first
         st.session_state.chat_messages.append({
             "role": "user", 
             "content": prompt,
             "visualization": None
         })
         
-        # Process assistant response
-        try:
-            geo_context = st.session_state.ai_chat.get_geographic_context_cached()
-            intent, final_response, viz_data = st.session_state.ai_chat.process_user_input(prompt, geo_context)
-            
-            # Add assistant response to history
-            st.session_state.chat_messages.append({
-                "role": "assistant",
-                "content": final_response,
-                "visualization": viz_data
-            })
-            
-        except Exception as e:
-            error_msg = f"Maaf, terjadi kesalahan: {str(e)}"
-            st.session_state.chat_messages.append({
-                "role": "assistant", 
-                "content": error_msg,
-                "visualization": None
-            })
+        # Display user message immediately
+        with st.chat_message("user"):
+            st.markdown(prompt)
         
-        # Force re-run to display new messages
-        st.rerun()
+        # Process the assistant response
+        with st.chat_message("assistant"):
+            try:
+                geo_context = st.session_state.ai_chat.get_geographic_context_cached()
+                
+                # Process user input
+                intent, final_response, viz_data = st.session_state.ai_chat.process_user_input(prompt, geo_context)
+                
+                # Display response immediately
+                st.markdown(final_response)
+                
+                # Display visualization if present
+                if viz_data:
+                    render_stored_visualization_cached(viz_data, len(st.session_state.chat_messages))
+                
+                # ONLY add to history AFTER displaying (no re-run needed)
+                st.session_state.chat_messages.append({
+                    "role": "assistant",
+                    "content": final_response,
+                    "visualization": viz_data
+                })
+                
+            except Exception as e:
+                error_msg = f"Maaf, terjadi kesalahan: {str(e)}"
+                st.error(error_msg)
+                st.session_state.chat_messages.append({
+                    "role": "assistant", 
+                    "content": error_msg,
+                    "visualization": None
+                })
     
     # Chat management
     st.markdown("---")
@@ -2541,14 +2572,17 @@ Apa yang ingin Anda ketahui hari ini?"""
     with col1:
         if st.button("Clear Chat", use_container_width=True):
             st.session_state.chat_messages = []
+            # Clear ALL visualization related cache
             keys_to_delete = [key for key in st.session_state.keys() if key.startswith("rendered_")]
             for key in keys_to_delete:
                 del st.session_state[key]
+            # Also clear any other visualization state
             if 'last_query_result' in st.session_state:
                 del st.session_state.last_query_result
             if 'last_map_data' in st.session_state:
                 del st.session_state.last_map_data
             st.rerun()
+
     
     with col2:
         if st.button("Reset Context", use_container_width=True):
@@ -2557,10 +2591,12 @@ Apa yang ingin Anda ketahui hari ini?"""
             if 'last_map_data' in st.session_state:
                 del st.session_state.last_map_data
             
+            # Clear context cache
             keys_to_delete = [key for key in st.session_state.keys() if key.startswith("context_")]
             for key in keys_to_delete:
                 del st.session_state[key]
             
+            # Clear geographic context cache
             geo_keys_to_delete = [key for key in st.session_state.keys() if key.startswith("geo_context_")]
             for key in geo_keys_to_delete:
                 del st.session_state[key]
