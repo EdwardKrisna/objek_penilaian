@@ -501,7 +501,6 @@ def extract_location_from_query(query: str) -> str:
     
     return None
 
-@function_tool
 def query_projects_count(location: str) -> str:
     """Get project count for a location - NO LLM needed"""
     try:
@@ -524,7 +523,6 @@ def query_projects_count(location: str) -> str:
     except Exception as e:
         return f"Error: {str(e)}"
 
-@function_tool  
 def query_top_clients(limit: int = 10) -> str:
     """Get top clients - NO LLM needed"""
     try:
