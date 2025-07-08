@@ -1149,7 +1149,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
             return f"Maaf, terjadi kesalahan dalam memproses hasil: {str(e)}"
     
     def create_map_visualization(self, query_data: pd.DataFrame, title: str = "Property Locations") -> str:
-        """Create map visualization from query data"""
+        """Create map visualization from query data with enhanced error handling"""
         try:
             # Check if data has required columns
             if 'latitude' not in query_data.columns or 'longitude' not in query_data.columns:
@@ -1159,18 +1159,25 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
             map_df = query_data.copy()
             map_df = map_df.dropna(subset=['latitude', 'longitude'])
 
-            # Convert to numeric
-            map_df['latitude'] = pd.to_numeric(map_df['latitude'], errors='coerce')
-            map_df['longitude'] = pd.to_numeric(map_df['longitude'], errors='coerce')
+            # Convert to numeric with error handling
+            try:
+                map_df['latitude'] = pd.to_numeric(map_df['latitude'], errors='coerce')
+                map_df['longitude'] = pd.to_numeric(map_df['longitude'], errors='coerce')
+            except Exception as e:
+                return f"Error converting coordinates to numeric: {str(e)}"
 
-            # Filter valid coordinates and remove zeros (only for coordinates, keep other data)
+            # Filter valid coordinates and remove zeros
             map_df = map_df[
+                (map_df['latitude'].notna()) & (map_df['longitude'].notna()) &
                 (map_df['latitude'] >= -90) & (map_df['latitude'] <= 90) &
                 (map_df['longitude'] >= -180) & (map_df['longitude'] <= 180) &
                 (map_df['latitude'] != 0) & (map_df['longitude'] != 0)
             ]
-
-            # Replace null/empty values only for display purposes, keep original data structure
+            
+            if len(map_df) == 0:
+                return "Error: Tidak ada data dengan koordinat yang valid untuk visualisasi peta."
+            
+            # Replace null/empty values for display
             display_df = map_df.copy()
             for col in ['nama_objek', 'pemberi_tugas', 'wadmpr', 'wadmkk']:
                 if col in display_df.columns:
@@ -1178,48 +1185,56 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                     display_df[col] = display_df[col].replace('', 'N/A')
                     display_df[col] = display_df[col].replace('NULL', 'N/A')
 
-            # Use display_df for hover text but keep original map_df structure
             map_df = display_df
-            
-            if len(map_df) == 0:
-                return "Error: Tidak ada data dengan koordinat yang valid untuk visualisasi peta."
             
             # Create map
             fig = go.Figure()
             
-            # Create hover text
+            # Create hover text with error handling
             hover_text = []
             for idx, row in map_df.iterrows():
-                text_parts = []
-                if 'id' in row:
-                    text_parts.append(f"ID: {row['id']}")
-                if 'nama_objek' in row:
-                    text_parts.append(f"Objek: {row['nama_objek']}")
-                if 'pemberi_tugas' in row:
-                    text_parts.append(f"Client: {row['pemberi_tugas']}")
-                if 'wadmpr' in row:
-                    text_parts.append(f"Provinsi: {row['wadmpr']}")
-                if 'wadmkk' in row:
-                    text_parts.append(f"Kab/Kota: {row['wadmkk']}")
-                if 'distance_km' in row:
-                    text_parts.append(f"Jarak: {row['distance_km']:.2f} km")
+                try:
+                    text_parts = []
+                    if 'id' in row and pd.notna(row['id']):
+                        text_parts.append(f"ID: {row['id']}")
+                    if 'nama_objek' in row and pd.notna(row['nama_objek']):
+                        text_parts.append(f"Objek: {row['nama_objek']}")
+                    if 'pemberi_tugas' in row and pd.notna(row['pemberi_tugas']):
+                        text_parts.append(f"Client: {row['pemberi_tugas']}")
+                    if 'wadmpr' in row and pd.notna(row['wadmpr']):
+                        text_parts.append(f"Provinsi: {row['wadmpr']}")
+                    if 'wadmkk' in row and pd.notna(row['wadmkk']):
+                        text_parts.append(f"Kab/Kota: {row['wadmkk']}")
+                    if 'distance_km' in row and pd.notna(row['distance_km']):
+                        text_parts.append(f"Jarak: {row['distance_km']:.2f} km")
+                    
+                    hover_text.append("<br>".join(text_parts) if text_parts else "No data available")
+                except Exception as e:
+                    hover_text.append(f"Error creating hover text: {str(e)}")
+            
+            # Add markers with error handling
+            try:
+                fig.add_trace(go.Scattermapbox(
+                    lat=map_df['latitude'],
+                    lon=map_df['longitude'],
+                    mode='markers',
+                    marker=dict(size=8, color='red'),
+                    text=hover_text,
+                    hovertemplate='%{text}<extra></extra>',
+                    name='Properties'
+                ))
+            except Exception as e:
+                return f"Error adding map markers: {str(e)}"
+            
+            # Calculate center with error handling
+            try:
+                center_lat = map_df['latitude'].mean()
+                center_lon = map_df['longitude'].mean()
                 
-                hover_text.append("<br>".join(text_parts))
-            
-            # Add markers
-            fig.add_trace(go.Scattermapbox(
-                lat=map_df['latitude'],
-                lon=map_df['longitude'],
-                mode='markers',
-                marker=dict(size=8, color='red'),
-                text=hover_text,
-                hovertemplate='%{text}<extra></extra>',
-                name='Properties'
-            ))
-            
-            # Calculate center
-            center_lat = map_df['latitude'].mean()
-            center_lon = map_df['longitude'].mean()
+                if pd.isna(center_lat) or pd.isna(center_lon):
+                    center_lat, center_lon = -6.2, 106.8  # Default to Jakarta
+            except Exception as e:
+                center_lat, center_lon = -6.2, 106.8  # Default to Jakarta
             
             # Map layout
             fig.update_layout(
@@ -1238,11 +1253,14 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
 
             # Store map data for future reference
             st.session_state.last_map_data = map_df.copy()
-            st.session_state.last_query_result = map_df.copy()  # Also store as last_query_result
+            st.session_state.last_query_result = map_df.copy()
 
             return f"✅ Peta berhasil ditampilkan dengan {len(map_df)} properti."
             
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            st.error(f"Map creation error details: {error_details}")
             return f"Error membuat visualisasi peta: {str(e)}"
     
     def determine_chart_type_and_data(self, user_question: str, last_query_result: pd.DataFrame = None) -> tuple:
@@ -1757,7 +1775,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
         return sql_query
 
     def handle_data_query(self, user_question: str, geographic_context: str = ""):
-        """Handle data-related queries with SQL validation"""
+        """Handle data-related queries with proper response processing"""
         try:
             # Check for reference queries first
             if hasattr(st.session_state, 'last_query_result'):
@@ -1782,6 +1800,14 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
             # Generate SQL query or function call using o4-mini
             ai_response = self.generate_query(user_question, geographic_context)
             
+            # Debug: Check AI response structure
+            if st.session_state.get('debug_mode', False):
+                st.write("**AI Response Debug:**")
+                st.write(f"Response type: {type(ai_response)}")
+                if hasattr(ai_response, 'output'):
+                    st.write(f"Output type: {type(ai_response.output)}")
+                    st.write(f"Output content: {ai_response.output}")
+            
             if ai_response and hasattr(ai_response, 'output') and ai_response.output:
                 # Process function calls (maps, charts, nearby search)
                 for output_item in ai_response.output:
@@ -1789,7 +1815,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                         return self.handle_function_call(output_item, user_question)
                 
                 # Process regular SQL queries
-                if hasattr(ai_response, 'output_text'):
+                if hasattr(ai_response, 'output_text') and ai_response.output_text:
                     sql_query = ai_response.output_text.strip()
                     
                     if sql_query and "SELECT" in sql_query.upper():
@@ -1810,140 +1836,144 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                         else:
                             return 'data_query', f"Query gagal dieksekusi: {query_msg}"
             
-            # If no valid SQL/function generated, treat as conversation
-            return 'chat', self.handle_chat_conversation(user_question)
+            # If no valid response, show error
+            return 'data_query', "Maaf, tidak dapat memproses permintaan. Silakan coba dengan pertanyaan yang lebih spesifik."
             
         except Exception as e:
+            # Enhanced error reporting
+            import traceback
+            error_details = traceback.format_exc()
+            st.error(f"Detailed error: {error_details}")
             return 'data_query', f"Maaf, terjadi kesalahan: {str(e)}"
     
     def handle_function_call(self, output_item, user_question: str):
-        """Handle function calls (maps, charts, nearby search)"""
+        """Handle function calls (maps, charts, nearby search) with proper error handling"""
         try:
-            if output_item.name == "create_chart_visualization":
+            # Debug: Show function call details
+            if st.session_state.get('debug_mode', False):
+                st.write(f"**Function Call Debug:**")
+                st.write(f"Function name: {output_item.name}")
+                st.write(f"Arguments: {output_item.arguments}")
+            
+            if output_item.name == "create_map_visualization":
                 try:
                     args = json.loads(output_item.arguments)
-                except json.JSONDecodeError as e:
-                    st.error(f"JSON parsing error: {str(e)}")
-                    st.error(f"Raw arguments: {output_item.arguments}")
+                    sql_query = args.get("sql_query")
+                    title = args.get("title", "Property Map")
                     
+                    if not sql_query:
+                        return 'data_query', "Error: SQL query tidak ditemukan untuk visualisasi peta."
+                    
+                    # Execute SQL query first
+                    result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+                    
+                    if result_df is not None and len(result_df) > 0:
+                        # Create map visualization
+                        map_result = self.create_map_visualization(result_df, title)
+                        
+                        with st.expander("📊 Map Data & Query Details", expanded=False):
+                            st.code(sql_query, language="sql")
+                            st.dataframe(result_df, use_container_width=True)
+                        
+                        st.session_state.last_query_result = result_df
+                        st.session_state.last_sql_query = sql_query
+                        
+                        response = f"""Saya telah membuat visualisasi peta untuk permintaan Anda.
+
+    {map_result}
+
+    Peta menampilkan lokasi properti berdasarkan data yang tersedia."""
+                        
+                        return 'data_query', response
+                    else:
+                        return 'data_query', f"Tidak dapat membuat peta: {query_msg}"
+                        
+                except json.JSONDecodeError as e:
+                    return 'data_query', f"Error parsing map parameters: {str(e)}"
+                except Exception as e:
+                    return 'data_query', f"Error creating map: {str(e)}"
+            
+            elif output_item.name == "create_chart_visualization":
+                try:
+                    args = json.loads(output_item.arguments)
+                    chart_type = args.get("chart_type", "bar")
+                    sql_query = args.get("sql_query")
+                    chart_title = args.get("title", "Data Visualization")
+                    x_col = args.get("x_column")
+                    y_col = args.get("y_column") 
+                    color_col = args.get("color_column")
+                    
+                    # Convert "null" string to None
+                    if color_col in ["null", "NULL", "", None]:
+                        color_col = None
+                    
+                    if not sql_query:
+                        return 'data_query', "Error: SQL query tidak ditemukan untuk visualisasi chart."
+                    
+                    # Execute SQL query
+                    result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+                    
+                    if result_df is not None and len(result_df) > 0:
+                        chart_result = self.create_chart_visualization(
+                            result_df, chart_type, chart_title, x_col, y_col, color_col
+                        )
+                        
+                        with st.expander("📊 Chart Data & Query Details", expanded=False):
+                            st.code(sql_query, language="sql")
+                            st.dataframe(result_df, use_container_width=True)
+                        
+                        st.session_state.last_query_result = result_df
+                        st.session_state.last_sql_query = sql_query
+                        
+                        response = f"""Saya telah membuat visualisasi grafik untuk permintaan Anda.
+
+    {chart_result}
+
+    Grafik menampilkan data berdasarkan query yang dijalankan."""
+                        
+                        return 'data_query', response
+                    else:
+                        return 'data_query', f"Tidak dapat membuat grafik: {query_msg}"
+                        
+                except json.JSONDecodeError as e:
                     # Fallback: use last result if available
                     if hasattr(st.session_state, 'last_query_result') and st.session_state.last_query_result is not None:
                         return self.create_chart_from_last_result(user_question)
                     else:
                         return 'data_query', f"Error parsing chart parameters: {str(e)}"
-                
-                chart_type = args.get("chart_type", "bar")
-                sql_query = args.get("sql_query")
-                chart_title = args.get("title", "Data Visualization")
-                x_col = args.get("x_column")
-                y_col = args.get("y_column") 
-                color_col = args.get("color_column")
-                
-                # Convert "null" string to None
-                if color_col in ["null", "NULL", "", None]:
-                    color_col = None
-                
-                # Execute SQL query
-                result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
-                
-                if result_df is not None and len(result_df) > 0:
-                    chart_result = self.create_chart_visualization(
-                        result_df, chart_type, chart_title, x_col, y_col, color_col
-                    )
-                    
-                    with st.expander("📊 Data & Query Details", expanded=False):
-                        st.code(sql_query, language="sql")
-                        st.dataframe(result_df, use_container_width=True)
-                    
-                    st.session_state.last_query_result = result_df
-                    st.session_state.last_sql_query = sql_query
-                    
-                    response = f"""Saya telah membuat visualisasi grafik untuk permintaan Anda.
-
-    {chart_result}
-
-    Grafik menampilkan data berdasarkan query yang dijalankan."""
-                    
-                    st.markdown("---")
-                    st.markdown(response)
-                    return 'data_query', response
-                else:
-                    error_msg = f"Tidak dapat membuat grafik: {query_msg}"
-                    st.error(error_msg)
-                    return 'data_query', error_msg
-            
-            elif output_item.name == "create_chart_visualization":
-                # Enhanced chart handling with better error handling
-                try:
-                    args = json.loads(output_item.arguments)
-                except json.JSONDecodeError as e:
-                    # Try to fix common JSON issues
-                    args_str = output_item.arguments
-                    
-                    # Fix common issues
-                    args_str = args_str.replace("'", '"')  # Replace single quotes
-                    args_str = re.sub(r'(\w+):', r'"\1":', args_str)  # Add quotes to keys
-                    
-                    try:
-                        args = json.loads(args_str)
-                    except:
-                        # Fallback: create default chart arguments
-                        st.error(f"JSON parsing error: {str(e)}")
-                        st.error(f"Raw arguments: {output_item.arguments}")
-                        
-                        # Try to extract at least the SQL query
-                        if hasattr(st.session_state, 'last_query_result') and st.session_state.last_query_result is not None:
-                            # Use last result data to create chart
-                            return self.create_chart_from_last_result(user_question)
-                        else:
-                            return 'data_query', f"Error parsing chart parameters: {str(e)}"
-                
-                chart_type = args.get("chart_type", "auto")
-                sql_query = args.get("sql_query")
-                chart_title = args.get("title", "Data Visualization")
-                x_col = args.get("x_column")
-                y_col = args.get("y_column") 
-                color_col = args.get("color_column")
-                
-                # If no SQL query provided, try to use context
-                if not sql_query and hasattr(st.session_state, 'last_query_result'):
-                    return self.create_chart_from_last_result(user_question, chart_type, chart_title)
-                
-                result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
-                
-                if result_df is not None and len(result_df) > 0:
-                    chart_result = self.create_chart_visualization(
-                        result_df, chart_type, chart_title, x_col, y_col, color_col
-                    )
-                    
-                    with st.expander("📊 Data & Query Details", expanded=False):
-                        st.code(sql_query, language="sql")
-                        st.dataframe(result_df, use_container_width=True)
-                    
-                    st.session_state.last_query_result = result_df
-                    
-                    response = f"""Saya telah membuat visualisasi grafik untuk permintaan Anda.
-
-    {chart_result}
-
-    Grafik menampilkan data berdasarkan query yang dijalankan."""
-                    
-                    st.markdown("---")
-                    st.markdown(response)
-                    return 'data_query', response
-                else:
-                    error_msg = f"Tidak dapat membuat grafik: {query_msg}"
-                    st.error(error_msg)
-                    return 'data_query', error_msg
+                except Exception as e:
+                    return 'data_query', f"Error creating chart: {str(e)}"
             
             elif output_item.name == "find_nearby_projects":
-                # ... existing nearby logic ...
-                pass
+                try:
+                    args = json.loads(output_item.arguments)
+                    location_name = args.get("location_name")
+                    radius_km = args.get("radius_km", 1.0)
+                    title = args.get("title", "Nearby Projects")
+                    
+                    if not location_name:
+                        return 'data_query', "Error: Nama lokasi tidak ditemukan untuk pencarian terdekat."
+                    
+                    # Use the find_nearby_projects method
+                    nearby_result = self.find_nearby_projects(
+                        location_name, radius_km, title, st.session_state.db_connection
+                    )
+                    
+                    return 'data_query', nearby_result
+                    
+                except json.JSONDecodeError as e:
+                    return 'data_query', f"Error parsing nearby search parameters: {str(e)}"
+                except Exception as e:
+                    return 'data_query', f"Error finding nearby projects: {str(e)}"
             
+            else:
+                return 'data_query', f"Unknown function call: {output_item.name}"
+                
         except Exception as e:
-            error_msg = f"Error executing function: {str(e)}"
-            st.error(error_msg)
-            return 'data_query', error_msg
+            import traceback
+            error_details = traceback.format_exc()
+            st.error(f"Function call error details: {error_details}")
+            return 'data_query', f"Error executing function: {str(e)}"
 
 def check_authentication():
     """Check if user is authenticated"""
