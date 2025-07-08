@@ -1700,6 +1700,122 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
         }
         return message_content
 
+    def handle_chat_conversation(self, user_question: str) -> str:
+        """Handle casual conversation and system info requests"""
+        user_lower = user_question.lower()
+        
+        # Greetings
+        if any(greeting in user_lower for greeting in ['halo', 'hai', 'hello', 'hi']):
+            return """Halo! Saya baik-baik saja dan siap membantu Anda dengan analisis data proyek RHR. 
+            
+Ada yang ingin Anda ketahui tentang data proyek, lokasi, atau klien hari ini?"""
+        
+        # Thanks
+        elif any(thanks in user_lower for thanks in ['terima kasih', 'thanks', 'thank you']):
+            return """Sama-sama! Senang bisa membantu Anda. 
+            
+Jika ada pertanyaan lain tentang data proyek atau analisis lainnya, silakan tanya saja!"""
+        
+        # System capabilities
+        elif any(question in user_lower for question in ['apa yang bisa', 'what can you do', 'fitur apa', 'bisa apa']):
+            return """Saya dapat membantu Anda dengan:
+
+**📊 Analisis Data Proyek:**
+- Menghitung jumlah proyek per lokasi
+- Menganalisis pemberi tugas dan klien
+- Melihat jenis objek penilaian
+- Status dan progress proyek
+
+**🗺️ Visualisasi Lokasi:**
+- Membuat peta interaktif proyek
+- Pencarian proyek terdekat dari lokasi tertentu
+- Analisis sebaran geografis
+
+**📈 Grafik dan Chart:**
+- Bar chart, pie chart, line chart
+- Visualisasi distribusi data
+- Perbandingan antar kategori
+
+**💬 Percakapan Kontekstual:**
+- Mengingat konteks percakapan sebelumnya
+- Follow-up questions berdasarkan data sebelumnya
+- Analisis detail dari hasil pencarian
+
+Contoh pertanyaan:
+- "Berapa proyek di Jakarta?"
+- "Siapa klien terbesar kita?"
+- "Buatkan peta proyek di Bandung"
+- "Grafik pemberi tugas per provinsi"
+
+Apa yang ingin Anda ketahui?"""
+        
+        # How to use
+        elif any(question in user_lower for question in ['bagaimana cara', 'how to', 'cara pakai', 'cara menggunakan']):
+            return """**Cara Menggunakan RHR AI Assistant:**
+
+1. **Tanya tentang Data:** 
+   - "Ada berapa proyek di Surabaya?"
+   - "Siapa saja pemberi tugas di Jakarta?"
+
+2. **Minta Visualisasi:**
+   - "Buatkan petanya" (setelah query lokasi)
+   - "Buat grafik pemberi tugas"
+
+3. **Follow-up Questions:**
+   - "Yang di Jakarta Selatan" (filter hasil sebelumnya)
+   - "Detail yang pertama"
+
+4. **Analisis Mendalam:**
+   - "Jelaskan pada proyek tersebut siapa saja kliennya"
+   - "Objek penilaian apa saja?"
+
+**Tips:**
+- Gunakan bahasa natural Indonesia
+- Saya mengingat konteks percakapan sebelumnya
+- Bisa minta format tabel, grafik, atau peta
+- Gunakan Geographic Filter untuk fokus area tertentu"""
+        
+        # General questions
+        elif any(question in user_lower for question in ['apa kabar', 'how are you', 'bagaimana']):
+            return """Saya baik dan siap membantu! 😊
+
+Sistem RHR AI berjalan lancar dan database terhubung dengan baik. Ada analisis data proyek yang ingin Anda lakukan hari ini?"""
+        
+        # Help requests
+        elif any(help_word in user_lower for help_word in ['help', 'bantuan', 'tolong', 'bantu']):
+            return """Tentu, saya siap membantu! 
+
+**Yang bisa saya bantu:**
+- 🔍 Pencarian dan analisis data proyek
+- 📊 Pembuatan grafik dan visualisasi  
+- 🗺️ Peta lokasi proyek
+- 📈 Analisis trend dan pola data
+
+**Contoh pertanyaan yang bisa Anda ajukan:**
+- "Proyek apa saja yang ada di Medan?"
+- "Buatkan grafik klien terbesar"
+- "Peta proyek dalam radius 5km dari SCBD"
+
+Coba tanyakan sesuatu yang spesifik tentang data proyek Anda!"""
+        
+        # Default response for unclear requests
+        else:
+            return """Maaf, saya tidak yakin bagaimana membantu dengan permintaan tersebut. 
+
+Saya dirancang khusus untuk membantu analisis data proyek RHR. Beberapa hal yang bisa saya lakukan:
+
+- 📊 Analisis data proyek (jumlah, lokasi, klien)
+- 🗺️ Visualisasi peta properti  
+- 📈 Grafik dan chart data
+- 💬 Percakapan tentang insights bisnis
+
+Coba tanyakan sesuatu seperti:
+- "Berapa proyek di Bali?"
+- "Siapa klien utama di Jakarta?"
+- "Buatkan peta proyek terdekat"
+
+Apa yang ingin Anda ketahui tentang data proyek?"""
+
     def process_user_input(self, user_question: str, geographic_context: str = ""):
         """Enhanced main method with visualization handling"""
         
@@ -2450,15 +2566,15 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("**System Status**")
     
-    # Database status
-    if hasattr(st.session_state, 'db_connection') and st.session_state.db_connection.connection_status:
+    db_connection = get_database_connection()
+    if db_connection and db_connection.connection_status:
         st.sidebar.success("Database Connected")
     else:
         st.sidebar.error("Database Disconnected")
     
     # Geocoding service status
     try:
-        google_api_key = st.secrets["google"]["api_key"]
+        _ = st.secrets["google"]["api_key"]
         st.sidebar.success("🌍 Geocoding Service Available")
     except KeyError:
         st.sidebar.warning("⚠️ Geocoding Service Unavailable")
