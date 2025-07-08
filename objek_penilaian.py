@@ -1019,7 +1019,7 @@ Anda dapat melakukan filtering dengan mengatakan:
 
         response = self.client.responses.create(
             model="o4-mini",
-            reasoning={"effort": "low"},
+            reasoning={"effort": "medium"},
             input=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_question}
