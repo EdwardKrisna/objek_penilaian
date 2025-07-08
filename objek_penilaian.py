@@ -1136,15 +1136,15 @@ Anda dapat melakukan filtering dengan mengatakan:
         return response
     
     def format_response(self, user_question: str, query_results: pd.DataFrame, sql_query: str) -> str:
-        """Use GPT-4.1-mini to format response in Bahasa Indonesia"""
+        """Use GPT-4.1-mini to format response with controlled streaming"""
         try:
             prompt = f"""User asked: {user_question}
 
-SQL Query executed: {sql_query}
-Results: {query_results.to_dict('records') if len(query_results) > 0 else 'No results found'}
+    SQL Query executed: {sql_query}
+    Results: {query_results.to_dict('records') if len(query_results) > 0 else 'No results found'}
 
-Provide clear answer in Bahasa Indonesia. Focus on business insights, not technical details.
-"""
+    Provide clear answer in Bahasa Indonesia. Focus on business insights, not technical details.
+    """
 
             response = self.client.chat.completions.create(
                 model="gpt-4.1-mini",
@@ -1163,16 +1163,32 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                 temperature=0.3
             )
             
-            full_response = ""
-            response_container = st.empty()
-            for chunk in response:
-                if chunk.choices[0].delta.content:
-                    full_response += chunk.choices[0].delta.content
-                    response_container.markdown(full_response + "▌")
-            return full_response
-            
+            # Stream the response in the CURRENT chat context
+            # Only stream if we're in an active chat context
+            if hasattr(st.session_state, 'current_chat_active'):
+                full_response = ""
+                placeholder = st.empty()
+                
+                for chunk in response:
+                    if chunk.choices[0].delta.content:
+                        full_response += chunk.choices[0].delta.content
+                        placeholder.markdown(full_response + "▌")
+                
+                # Remove the cursor
+                placeholder.markdown(full_response)
+                return full_response
+            else:
+                # If not in active chat, just collect all chunks
+                full_response = ""
+                for chunk in response:
+                    if chunk.choices[0].delta.content:
+                        full_response += chunk.choices[0].delta.content
+                return full_response
+                
         except Exception as e:
             return f"Maaf, terjadi kesalahan dalam memproses hasil: {str(e)}"
+
+
     
     def create_map_visualization(self, query_data: pd.DataFrame, title: str = "Property Locations") -> str:
         """Create map visualization from query data with persistence"""
