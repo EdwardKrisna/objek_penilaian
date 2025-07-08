@@ -268,9 +268,34 @@ class RHRAIChat:
         self.table_name = table_name
         self.geocode_service = geocode_service
         self.context_manager = ConversationContextManager()
-        # Add conversation memory
         self.conversation_history = []
         self.last_query_context = None
+        
+        # Initialize visualization storage in session state
+        if 'visualizations' not in st.session_state:
+            st.session_state.visualizations = []
+
+    # Enhanced method to store visualizations
+    def store_visualization(self, viz_type: str, data: pd.DataFrame, title: str, extra_params: dict = None):
+        """Store visualization data for persistence across chat re-runs"""
+        viz_data = {
+            'type': viz_type,  # 'map', 'chart', 'nearby'
+            'data': data.copy(),
+            'title': title,
+            'timestamp': datetime.now().isoformat(),
+            'extra_params': extra_params or {}
+        }
+        
+        # Add to session state
+        if 'visualizations' not in st.session_state:
+            st.session_state.visualizations = []
+        
+        st.session_state.visualizations.append(viz_data)
+        
+        # Keep only last 3 visualizations to avoid memory issues
+        if len(st.session_state.visualizations) > 3:
+            st.session_state.visualizations = st.session_state.visualizations[-3:]
+
     
     def add_to_conversation_memory(self, user_input: str, ai_response: str, query_result: pd.DataFrame = None, sql_query: str = None):
         """Add exchange to conversation memory"""
@@ -1148,8 +1173,68 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
         except Exception as e:
             return f"Maaf, terjadi kesalahan dalam memproses hasil: {str(e)}"
     
+    def render_map_visualization(self, map_df: pd.DataFrame, title: str):
+        """Render map visualization"""
+        # Create map
+        fig = go.Figure()
+        
+        # Create hover text
+        hover_text = []
+        for idx, row in map_df.iterrows():
+            try:
+                text_parts = []
+                if 'id' in row and pd.notna(row['id']):
+                    text_parts.append(f"ID: {row['id']}")
+                if 'nama_objek' in row and pd.notna(row['nama_objek']):
+                    text_parts.append(f"Objek: {row['nama_objek']}")
+                if 'pemberi_tugas' in row and pd.notna(row['pemberi_tugas']):
+                    text_parts.append(f"Client: {row['pemberi_tugas']}")
+                if 'wadmpr' in row and pd.notna(row['wadmpr']):
+                    text_parts.append(f"Provinsi: {row['wadmpr']}")
+                if 'wadmkk' in row and pd.notna(row['wadmkk']):
+                    text_parts.append(f"Kab/Kota: {row['wadmkk']}")
+                if 'distance_km' in row and pd.notna(row['distance_km']):
+                    text_parts.append(f"Jarak: {row['distance_km']:.2f} km")
+                
+                hover_text.append("<br>".join(text_parts) if text_parts else "No data available")
+            except Exception as e:
+                hover_text.append(f"Error creating hover text: {str(e)}")
+        
+        # Add markers
+        fig.add_trace(go.Scattermapbox(
+            lat=map_df['latitude'],
+            lon=map_df['longitude'],
+            mode='markers',
+            marker=dict(size=8, color='red'),
+            text=hover_text,
+            hovertemplate='%{text}<extra></extra>',
+            name='Properties'
+        ))
+        
+        # Calculate center
+        center_lat = map_df['latitude'].mean()
+        center_lon = map_df['longitude'].mean()
+        
+        if pd.isna(center_lat) or pd.isna(center_lon):
+            center_lat, center_lon = -6.2, 106.8  # Default to Jakarta
+        
+        # Map layout
+        fig.update_layout(
+            mapbox=dict(
+                style="open-street-map",
+                center=dict(lat=center_lat, lon=center_lon),
+                zoom=8
+            ),
+            height=500,
+            margin=dict(l=0, r=0, t=30, b=0),
+            title=title
+        )
+        
+        # Display map
+        st.plotly_chart(fig, use_container_width=True, key=f"map_{len(st.session_state.visualizations)}")
+
     def create_map_visualization(self, query_data: pd.DataFrame, title: str = "Property Locations") -> str:
-        """Create map visualization from query data with enhanced error handling"""
+        """Create map visualization from query data with persistence"""
         try:
             # Check if data has required columns
             if 'latitude' not in query_data.columns or 'longitude' not in query_data.columns:
@@ -1187,69 +1272,11 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
 
             map_df = display_df
             
-            # Create map
-            fig = go.Figure()
+            # Store visualization data for persistence
+            self.store_visualization('map', map_df, title)
             
-            # Create hover text with error handling
-            hover_text = []
-            for idx, row in map_df.iterrows():
-                try:
-                    text_parts = []
-                    if 'id' in row and pd.notna(row['id']):
-                        text_parts.append(f"ID: {row['id']}")
-                    if 'nama_objek' in row and pd.notna(row['nama_objek']):
-                        text_parts.append(f"Objek: {row['nama_objek']}")
-                    if 'pemberi_tugas' in row and pd.notna(row['pemberi_tugas']):
-                        text_parts.append(f"Client: {row['pemberi_tugas']}")
-                    if 'wadmpr' in row and pd.notna(row['wadmpr']):
-                        text_parts.append(f"Provinsi: {row['wadmpr']}")
-                    if 'wadmkk' in row and pd.notna(row['wadmkk']):
-                        text_parts.append(f"Kab/Kota: {row['wadmkk']}")
-                    if 'distance_km' in row and pd.notna(row['distance_km']):
-                        text_parts.append(f"Jarak: {row['distance_km']:.2f} km")
-                    
-                    hover_text.append("<br>".join(text_parts) if text_parts else "No data available")
-                except Exception as e:
-                    hover_text.append(f"Error creating hover text: {str(e)}")
-            
-            # Add markers with error handling
-            try:
-                fig.add_trace(go.Scattermapbox(
-                    lat=map_df['latitude'],
-                    lon=map_df['longitude'],
-                    mode='markers',
-                    marker=dict(size=8, color='red'),
-                    text=hover_text,
-                    hovertemplate='%{text}<extra></extra>',
-                    name='Properties'
-                ))
-            except Exception as e:
-                return f"Error adding map markers: {str(e)}"
-            
-            # Calculate center with error handling
-            try:
-                center_lat = map_df['latitude'].mean()
-                center_lon = map_df['longitude'].mean()
-                
-                if pd.isna(center_lat) or pd.isna(center_lon):
-                    center_lat, center_lon = -6.2, 106.8  # Default to Jakarta
-            except Exception as e:
-                center_lat, center_lon = -6.2, 106.8  # Default to Jakarta
-            
-            # Map layout
-            fig.update_layout(
-                mapbox=dict(
-                    style="open-street-map",
-                    center=dict(lat=center_lat, lon=center_lon),
-                    zoom=8
-                ),
-                height=500,
-                margin=dict(l=0, r=0, t=30, b=0),
-                title=title
-            )
-            
-            # Display map in Streamlit
-            st.plotly_chart(fig, use_container_width=True)
+            # Create and display the map
+            self.render_map_visualization(map_df, title)
 
             # Store map data for future reference
             st.session_state.last_map_data = map_df.copy()
@@ -2163,8 +2190,35 @@ def render_geographic_filter():
     else:
         st.info("No geographic filters applied. AI will search across all locations.")
 
+# Method to display persistent visualizations
+def display_persistent_visualizations():
+    """Display all stored visualizations"""
+    if 'visualizations' in st.session_state and st.session_state.visualizations:
+        st.markdown("### 📊 Recent Visualizations")
+        
+        for i, viz in enumerate(st.session_state.visualizations):
+            with st.expander(f"📈 {viz['title']} ({viz['type'].title()})", expanded=True):
+                if viz['type'] == 'map':
+                    # Re-render map
+                    st.session_state.ai_chat.render_map_visualization(viz['data'], viz['title'])
+                    
+                elif viz['type'] == 'chart':
+                    # Re-render chart
+                    params = viz['extra_params']
+                    st.session_state.ai_chat.render_chart_visualization(
+                        viz['data'], 
+                        params['chart_type'], 
+                        viz['title'],
+                        params['x_col'], 
+                        params['y_col'], 
+                        params['color_col']
+                    )
+                
+                # Show data summary
+                st.caption(f"Data points: {len(viz['data'])} | Created: {viz['timestamp'][:19]}")
+
 def render_ai_chat():
-    """Render AI chat interface with enhanced domain-focused conversation"""
+    """Enhanced chat interface with persistent visualizations"""
     st.markdown('<div class="section-header">AI Chat</div>', unsafe_allow_html=True)
     
     if not initialize_database():
@@ -2186,69 +2240,16 @@ def render_ai_chat():
         st.error("Table name not found in secrets.toml")
         return
     
-    # Initialize AI chat with geocoding service
+    # Initialize AI chat
     if 'ai_chat' not in st.session_state:
         st.session_state.ai_chat = RHRAIChat(api_key, table_name, geocode_service)
     
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
-        # Add welcome message
-        welcome_msg = """Halo! Saya asisten AI RHR Anda 👋
-
-Saya dapat membantu Anda dengan:
-
-**📊 Analisis Data:**
-- "Berapa banyak proyek yang kita miliki di Jakarta?"
-- "Siapa 5 klien utama kita?"
-- "Jenis properti apa yang paling sering kita nilai?"
-
-**🗺️ Visualisasi Lokasi:**
-- "Buatkan peta proyek terdekat dari Setiabudi One dengan radius 1 km"
-- "Tampilkan proyek sekitar Mall Taman Anggrek dalam radius 500 m"
-
-**📈 Grafik dan Chart:**
-- "Buatkan grafik pemberi tugas di tiap cabang"
-- "Grafik pie untuk jenis objek penilaian"
-
-**💬 Percakapan Umum:**
-- Bertanya tentang fitur sistem
-- Minta bantuan atau penjelasan
-
-**🔍 Follow-up Contextual:**
-- "Buatkan tabel dari data tersebut"
-- "Detail lengkap yang pertama"
-- "Yang di Jakarta Selatan"
-
-Apa yang ingin Anda ketahui atau lakukan hari ini?"""
-        
-        st.session_state.chat_messages.append({
-            "role": "assistant",
-            "content": welcome_msg
-        })
+        # Add welcome message...
     
-    # Debug mode toggle (optional - you can remove this)
-    with st.sidebar:
-        st.session_state.debug_mode = st.checkbox("Debug Mode", value=False, help="Show intent classification")
-    
-    # Display geocoding service status
-    if geocode_service:
-        st.success("🌍 Layanan pencarian lokasi aktif")
-    else:
-        st.warning("⚠️ Layanan pencarian lokasi tidak aktif - tambahkan Google Maps API key untuk menggunakan fitur pencarian terdekat")
-    
-    # Display geographic context if available
-    if hasattr(st.session_state, 'geographic_filters') and any(st.session_state.geographic_filters.values()):
-        st.markdown("**Current Geographic Context:**")
-        filters = st.session_state.geographic_filters
-        context_parts = []
-        if filters.get('wadmpr'):
-            context_parts.append(f"Provinces: {', '.join(filters['wadmpr'])}")
-        if filters.get('wadmkk'):
-            context_parts.append(f"Regencies: {', '.join(filters['wadmkk'])}")
-        if filters.get('wadmkc'):
-            context_parts.append(f"Districts: {', '.join(filters['wadmkc'])}")
-        
-        st.info(" | ".join(context_parts))
+    # Display persistent visualizations first
+    display_persistent_visualizations()
     
     # Display chat history
     for message in st.session_state.chat_messages:
@@ -2278,7 +2279,7 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
                     
                     geo_context = "Geographic context: " + " | ".join(context_parts)
                 
-                # Process user input with intent classification
+                # Process user input
                 intent, final_response = st.session_state.ai_chat.process_user_input(prompt, geo_context)
                 
                 # Add assistant response to history
@@ -2295,9 +2296,9 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
                     "content": error_msg
                 })
     
-    # Chat management
+    # Chat management with enhanced options
     st.markdown("---")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         if st.button("Clear Chat", use_container_width=True):
@@ -2309,19 +2310,25 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
             st.rerun()
 
     with col2:
-        if st.button("Reset Context", use_container_width=True, help="Clear previous query context"):
+        if st.button("Clear Visualizations", use_container_width=True):
+            st.session_state.visualizations = []
+            st.rerun()
+    
+    with col3:
+        if st.button("Reset Context", use_container_width=True):
             if 'last_query_result' in st.session_state:
                 del st.session_state.last_query_result
             if 'last_map_data' in st.session_state:
                 del st.session_state.last_map_data
             st.success("Context cleared!")
     
-    with col3:
+    with col4:
         if st.button("Export Chat", use_container_width=True):
             chat_export = {
                 "timestamp": datetime.now().isoformat(),
                 "geographic_filters": st.session_state.get('geographic_filters', {}),
-                "chat_messages": st.session_state.chat_messages
+                "chat_messages": st.session_state.chat_messages,
+                "visualizations_count": len(st.session_state.get('visualizations', []))
             }
             
             st.download_button(
