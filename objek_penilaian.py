@@ -1870,8 +1870,40 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
         
         return sql_query
 
+    def clean_and_validate_sql(self, sql_query: str) -> str:
+        """Clean and validate SQL query to remove markdown and fix syntax issues"""
+        
+        # Remove markdown code blocks
+        sql_query = re.sub(r'```sql\s*', '', sql_query, flags=re.IGNORECASE)
+        sql_query = re.sub(r'```\s*', '', sql_query)
+        sql_query = re.sub(r'`+', '', sql_query)  # Remove backticks
+        
+        # Remove multiple semicolons
+        sql_query = re.sub(r';\s*SELECT', '; -- SECOND QUERY REMOVED: SELECT', sql_query)
+        
+        # Fix table name issues
+        wrong_table_patterns = [
+            r'\bFROM\s+objek_penilaian\b(?!\w)',
+            r'\bfrom\s+objek_penilaian\b(?!\w)',
+            r'\bJOIN\s+objek_penilaian\b(?!\w)',
+            r'\bjoin\s+objek_penilaian\b(?!\w)'
+        ]
+        
+        for pattern in wrong_table_patterns:
+            sql_query = re.sub(pattern, f'FROM {self.table_name}', sql_query, flags=re.IGNORECASE)
+        
+        # Ensure single query execution
+        if sql_query.count(';') > 1:
+            first_query = sql_query.split(';')[0] + ';'
+            sql_query = first_query
+        
+        # Clean up whitespace and newlines
+        sql_query = ' '.join(sql_query.split())
+        
+        return sql_query.strip()
+
     def handle_data_query(self, user_question: str, geographic_context: str = ""):
-        """Handle data-related queries with visualization support"""
+        """Handle data-related queries with validation for SQL syntax"""
         try:
             # Check for reference queries first
             if hasattr(st.session_state, 'last_query_result'):
@@ -1894,7 +1926,7 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
             
             # Generate SQL query or function call
             ai_response = self.generate_query(user_question, geographic_context)
-        
+            
             if ai_response and hasattr(ai_response, 'output') and ai_response.output:
                 # Process function calls (maps, charts, nearby search)
                 for output_item in ai_response.output:
@@ -1907,7 +1939,9 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     sql_query = ai_response.output_text.strip()
                     
                     if sql_query and "SELECT" in sql_query.upper():
-                        sql_query = self.validate_and_fix_sql(sql_query)
+                        # ENHANCED SQL CLEANING
+                        sql_query = self.clean_and_validate_sql(sql_query)
+                        
                         result_df, query_msg = self.db_connection.execute_query(sql_query)
                         
                         if result_df is not None:
@@ -1929,6 +1963,7 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
             error_details = traceback.format_exc()
             st.error(f"Detailed error: {error_details}")
             return 'data_query', f"Maaf, terjadi kesalahan: {str(e)}", None
+
     
     def prepare_map_data(self, query_data: pd.DataFrame) -> pd.DataFrame:
         """Prepare and clean map data"""
@@ -2420,7 +2455,7 @@ def render_geographic_filter():
 
 
 def render_ai_chat():
-    """Optimized chat interface with better performance"""
+    """Fixed chat interface without double output"""
     st.markdown('<div class="section-header">AI Chat</div>', unsafe_allow_html=True)
     
     # Use cached database connection
@@ -2429,7 +2464,6 @@ def render_ai_chat():
         st.error("Database connection failed")
         return
     
-    # Store in session state for AI chat to use
     st.session_state.db_connection = db_connection
     
     # Use cached AI client
@@ -2446,30 +2480,12 @@ def render_ai_chat():
         welcome_msg = """Halo! Saya asisten AI RHR Anda 👋
 
 Saya dapat membantu Anda dengan:
+- 📊 Analisis data proyek
+- 🗺️ Visualisasi lokasi  
+- 📈 Grafik dan chart
+- 💬 Percakapan umum
 
-**📊 Analisis Data:**
-- "Berapa banyak proyek yang kita miliki di Jakarta?"
-- "Siapa 5 klien utama kita?"
-- "Jenis properti apa yang paling sering kita nilai?"
-
-**🗺️ Visualisasi Lokasi:**
-- "Buatkan peta proyek terdekat dari Setiabudi One dengan radius 1 km"
-- "Tampilkan proyek sekitar Mall Taman Anggrek dalam radius 500 m"
-
-**📈 Grafik dan Chart:**
-- "Buatkan grafik pemberi tugas di tiap cabang"
-- "Grafik pie untuk jenis objek penilaian"
-
-**💬 Percakapan Umum:**
-- Bertanya tentang fitur sistem
-- Minta bantuan atau penjelasan
-
-**🔍 Follow-up Contextual:**
-- "Buatkan tabel dari data tersebut"
-- "Detail lengkap yang pertama"
-- "Yang di Jakarta Selatan"
-
-Apa yang ingin Anda ketahui atau lakukan hari ini?"""
+Apa yang ingin Anda ketahui hari ini?"""
         
         st.session_state.chat_messages.append({
             "role": "assistant",
@@ -2477,7 +2493,7 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
             "visualization": None
         })
     
-    # Display chat history with embedded visualizations
+    # Display ALL existing chat messages (including any just added)
     for i, message in enumerate(st.session_state.chat_messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
@@ -2486,49 +2502,37 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
             if message.get("visualization"):
                 render_stored_visualization_cached(message["visualization"], i)
     
-    # Chat input processing (only when new message is sent)
+    # Handle new user input
     if prompt := st.chat_input("Ask me about your projects or just chat..."):
-        # Add user message to history first
+        # Add user message to history
         st.session_state.chat_messages.append({
             "role": "user", 
             "content": prompt,
             "visualization": None
         })
         
-        # Display user message immediately
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        # Process assistant response
+        try:
+            geo_context = st.session_state.ai_chat.get_geographic_context_cached()
+            intent, final_response, viz_data = st.session_state.ai_chat.process_user_input(prompt, geo_context)
+            
+            # Add assistant response to history
+            st.session_state.chat_messages.append({
+                "role": "assistant",
+                "content": final_response,
+                "visualization": viz_data
+            })
+            
+        except Exception as e:
+            error_msg = f"Maaf, terjadi kesalahan: {str(e)}"
+            st.session_state.chat_messages.append({
+                "role": "assistant", 
+                "content": error_msg,
+                "visualization": None
+            })
         
-        # Process the assistant response
-        with st.chat_message("assistant"):
-            try:
-                geo_context = st.session_state.ai_chat.get_geographic_context_cached()
-                
-                # Process user input
-                intent, final_response, viz_data = st.session_state.ai_chat.process_user_input(prompt, geo_context)
-                
-                # Display response immediately
-                st.markdown(final_response)
-                
-                # Display visualization if present
-                if viz_data:
-                    render_stored_visualization_cached(viz_data, len(st.session_state.chat_messages))
-                
-                # ONLY add to history AFTER displaying (no re-run needed)
-                st.session_state.chat_messages.append({
-                    "role": "assistant",
-                    "content": final_response,
-                    "visualization": viz_data
-                })
-                
-            except Exception as e:
-                error_msg = f"Maaf, terjadi kesalahan: {str(e)}"
-                st.error(error_msg)
-                st.session_state.chat_messages.append({
-                    "role": "assistant", 
-                    "content": error_msg,
-                    "visualization": None
-                })
+        # Force re-run to display new messages
+        st.rerun()
     
     # Chat management
     st.markdown("---")
@@ -2537,17 +2541,14 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
     with col1:
         if st.button("Clear Chat", use_container_width=True):
             st.session_state.chat_messages = []
-            # Clear ALL visualization related cache
             keys_to_delete = [key for key in st.session_state.keys() if key.startswith("rendered_")]
             for key in keys_to_delete:
                 del st.session_state[key]
-            # Also clear any other visualization state
             if 'last_query_result' in st.session_state:
                 del st.session_state.last_query_result
             if 'last_map_data' in st.session_state:
                 del st.session_state.last_map_data
             st.rerun()
-
     
     with col2:
         if st.button("Reset Context", use_container_width=True):
@@ -2556,12 +2557,10 @@ Apa yang ingin Anda ketahui atau lakukan hari ini?"""
             if 'last_map_data' in st.session_state:
                 del st.session_state.last_map_data
             
-            # Clear context cache
             keys_to_delete = [key for key in st.session_state.keys() if key.startswith("context_")]
             for key in keys_to_delete:
                 del st.session_state[key]
             
-            # Clear geographic context cache
             geo_keys_to_delete = [key for key in st.session_state.keys() if key.startswith("geo_context_")]
             for key in geo_keys_to_delete:
                 del st.session_state[key]
