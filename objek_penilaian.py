@@ -1967,7 +1967,7 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
             return None
 
     def handle_function_call(self, output_item):
-        """Handle function calls and return both response and visualization data"""
+        """Handle function calls (maps, charts, nearby search)"""
         try:
             if output_item.name == "create_map_visualization":
                 try:
@@ -1986,8 +1986,9 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                         map_df = self.prepare_map_data(result_df)
                         
                         if map_df is not None and len(map_df) > 0:
-                            # Store map data for rendering
+                            # ENSURE PROPER STRUCTURE WITH 'type' FIELD
                             viz_data = {
+                                'type': 'map',  # Make sure this is always present
                                 'map_data': map_df.to_dict('records'),
                                 'title': title,
                                 'center_lat': float(map_df['latitude'].mean()),
@@ -2040,8 +2041,9 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     result_df, query_msg = self.db_connection.execute_query(sql_query)
                     
                     if result_df is not None and len(result_df) > 0:
-                        # Store chart data for rendering
+                        # ENSURE PROPER STRUCTURE WITH 'type' FIELD
                         viz_data = {
+                            'type': 'chart',  # Make sure this is always present
                             'chart_data': result_df.to_dict('records'),
                             'chart_type': chart_type,
                             'title': chart_title,
@@ -2072,10 +2074,6 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     return 'data_query', f"Error parsing chart parameters: {str(e)}", None
                 except Exception as e:
                     return 'data_query', f"Error creating chart: {str(e)}", None
-            
-            elif output_item.name == "find_nearby_projects":
-                # Similar implementation for nearby projects...
-                pass
             
             else:
                 return 'data_query', f"Unknown function call: {output_item.name}", None
@@ -2165,7 +2163,7 @@ def get_ai_chat_client():
         return None
 
 def render_stored_visualization_cached(viz_data: dict, message_index: int):
-    """Render visualization with caching to avoid re-processing"""
+    """Render visualization with caching and better error handling"""
     
     # Create a unique key for this visualization
     viz_key = f"viz_{message_index}_{hash(str(viz_data))}"
@@ -2175,9 +2173,29 @@ def render_stored_visualization_cached(viz_data: dict, message_index: int):
         return
     
     try:
-        if viz_data['type'] == 'map':
+        # ADD VALIDATION FOR viz_data STRUCTURE
+        if not isinstance(viz_data, dict):
+            st.error(f"Invalid visualization data type: {type(viz_data)}")
+            return
+        
+        if 'type' not in viz_data:
+            st.error(f"Missing 'type' field in visualization data. Available keys: {list(viz_data.keys())}")
+            return
+        
+        viz_type = viz_data['type']
+        
+        if viz_type == 'map':
+            # Validate map data structure
+            if 'map_data' not in viz_data:
+                st.error("Missing 'map_data' field in map visualization")
+                return
+            
             # Recreate map from stored data
             map_data = pd.DataFrame(viz_data['map_data'])
+            
+            if len(map_data) == 0:
+                st.warning("No map data to display")
+                return
             
             fig = go.Figure()
             
@@ -2210,28 +2228,40 @@ def render_stored_visualization_cached(viz_data: dict, message_index: int):
             ))
             
             # Map layout
+            center_lat = viz_data.get('center_lat', map_data['latitude'].mean())
+            center_lon = viz_data.get('center_lon', map_data['longitude'].mean())
+            
             fig.update_layout(
                 mapbox=dict(
                     style="open-street-map",
-                    center=dict(lat=viz_data['center_lat'], lon=viz_data['center_lon']),
+                    center=dict(lat=center_lat, lon=center_lon),
                     zoom=8
                 ),
                 height=400,
                 margin=dict(l=0, r=0, t=30, b=0),
-                title=viz_data['title']
+                title=viz_data.get('title', 'Property Map')
             )
             
             st.plotly_chart(fig, use_container_width=True, key=viz_key)
             
-        elif viz_data['type'] == 'chart':
+        elif viz_type == 'chart':
+            # Validate chart data structure
+            if 'chart_data' not in viz_data:
+                st.error("Missing 'chart_data' field in chart visualization")
+                return
+            
             # Recreate chart from stored data
             chart_data = pd.DataFrame(viz_data['chart_data'])
             
-            chart_type = viz_data['chart_type']
-            x_col = viz_data['x_column']
-            y_col = viz_data['y_column']
-            color_col = viz_data['color_column']
-            title = viz_data['title']
+            if len(chart_data) == 0:
+                st.warning("No chart data to display")
+                return
+            
+            chart_type = viz_data.get('chart_type', 'bar')
+            x_col = viz_data.get('x_column')
+            y_col = viz_data.get('y_column')
+            color_col = viz_data.get('color_column')
+            title = viz_data.get('title', 'Data Visualization')
             
             fig = None
             
@@ -2258,11 +2288,19 @@ def render_stored_visualization_cached(viz_data: dict, message_index: int):
                 
                 st.plotly_chart(fig, use_container_width=True, key=viz_key)
         
+        else:
+            st.error(f"Unknown visualization type: {viz_type}")
+            return
+        
         # Mark this visualization as rendered
         st.session_state[f"rendered_{viz_key}"] = True
         
     except Exception as e:
         st.error(f"Error rendering stored visualization: {str(e)}")
+        # DEBUG: Show the problematic data structure
+        if st.session_state.get('debug_mode', False):
+            st.write("**Debug - Visualization Data:**")
+            st.write(viz_data)
 
 def render_geographic_filter():
     """Render geographic filtering interface"""
