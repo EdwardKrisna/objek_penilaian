@@ -970,26 +970,31 @@ Anda dapat melakukan filtering dengan mengatakan:
 
     CONVERSATION-AWARE EXAMPLES:
 
-    Example 1:
+    Example:
     User: "berapa proyek di bandung?"
     AI: SELECT COUNT(*) FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%')
 
     User: "buatkan petanya"  
     AI: create_map_visualization("SELECT id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') AND latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0", "Peta Proyek di Bandung")
 
-    User: "siapa saja pemberi tugasnya?"
-    AI: SELECT pemberi_tugas, COUNT(*) AS jumlah_proyek FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') AND pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL' GROUP BY pemberi_tugas ORDER BY jumlah_proyek DESC LIMIT 10
+    User: "jelaskan pada proyek tersebut siapa saja pemberi tugasnya"
+    AI MUST generate:
+    SELECT pemberi_tugas, COUNT(*) AS jumlah_proyek 
+    FROM {self.table_name} 
+    WHERE (wadmpr ILIKE '%batam%' OR wadmkk ILIKE '%batam%') 
+    AND pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL'
+    GROUP BY pemberi_tugas 
+    ORDER BY jumlah_proyek DESC 
+    LIMIT 10
 
-    User: "buat grafik pemberi tugasnya"
-    AI: create_chart_visualization("bar", "SELECT pemberi_tugas, COUNT(*) AS jumlah_proyek FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') AND pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL' GROUP BY pemberi_tugas ORDER BY jumlah_proyek DESC LIMIT 10", "Grafik Pemberi Tugas di Bandung", "pemberi_tugas", "jumlah_proyek", "")
+    User: "buatkan dalam grafik" (referring to previous pemberi tugas data)
+    AI MUST generate:
+    create_chart_visualization("bar", "SELECT pemberi_tugas, COUNT(*) AS jumlah_proyek FROM {self.table_name} WHERE (wadmpr ILIKE '%batam%' OR wadmkk ILIKE '%batam%') AND pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL' GROUP BY pemberi_tugas ORDER BY jumlah_proyek DESC LIMIT 10", "Grafik Pemberi Tugas di Batam", "pemberi_tugas", "jumlah_proyek", "null")
 
-    Generate ONLY the PostgreSQL query or function call, no explanations.
-
-
-    CRITICAL: Generate ONLY the PostgreSQL query or function call using table name {self.table_name}, no explanations."""
+    Generate ONLY the PostgreSQL query or function call with proper context filters."""
 
         # Check for chart/graph requests - more comprehensive detection
-        is_chart_request = bool(re.search(r"\b(grafik|chart|barchart|pie|line|scatter|histogram|graph|visualisasi data|buatkan grafik)\b", user_question, re.I))
+        is_chart_request = bool(re.search(r"\b(grafik|chart|barchart|pie|line|scatter|histogram|graph|visualisasi data|buatkan grafik|dalam grafik)\b", user_question, re.I))
         is_nearby_request = bool(re.search(r"\b(terdekat|sekitar|dekat|nearby|near|radius)\b", user_question, re.I))
         is_map_request = bool(re.search(r"\b(map|peta|visualisasi lokasi|buatkan peta|petanya)\b", user_question, re.I))
 
@@ -1043,7 +1048,7 @@ Anda dapat melakukan filtering dengan mengatakan:
                     "properties": {
                         "chart_type": {
                             "type": "string",
-                            "enum": ["bar", "pie", "line", "scatter", "histogram", "auto"],
+                            "enum": ["bar", "pie", "line", "scatter", "histogram"],
                             "description": "Type of chart to create"
                         },
                         "sql_query": {
@@ -1053,28 +1058,25 @@ Anda dapat melakukan filtering dengan mengatakan:
                         "title": { "type": "string" },
                         "x_column": {
                             "type": "string",
-                            "description": "Column name for x-axis (optional, can be auto-detected)"
+                            "description": "Column name for x-axis - must be a column from the SQL result"
                         },
                         "y_column": {
                             "type": "string", 
-                            "description": "Column name for y-axis (optional, can be auto-detected)"
+                            "description": "Column name for y-axis - must be a column from the SQL result"
                         },
                         "color_column": {
                             "type": "string",
-                            "description": "Column name for color grouping (optional)"
+                            "description": "Column name for color grouping, or 'null' if no color grouping needed"
                         }
                     },
-                    "required": ["chart_type", "sql_query", "title",
-                                "x_column", "y_column",
-                                    "color_column"
-                                    ],
+                    "required": ["chart_type", "sql_query", "title", "x_column", "y_column", "color_column"],
                     "additionalProperties": False
                 },
                 "strict": True
             }
         ]
 
-        # Fixed message structure - no duplication
+        # Fixed message structure
         messages = [
             {"role": "system", "content": system_prompt}
         ]
@@ -1083,10 +1085,10 @@ Anda dapat melakukan filtering dengan mengatakan:
         if geographic_context:
             messages.append({"role": "user", "content": f"Geographic Filter: {geographic_context}"})
         
-        # Add the user question only once
+        # Add the user question
         messages.append({"role": "user", "content": user_question})
 
-        # Determine which function to use - more specific logic
+        # Determine which function to use
         tool_choice = "auto"
         if is_chart_request and not is_map_request:
             tool_choice = {"type": "function", "name": "create_chart_visualization"}
@@ -1372,11 +1374,15 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
             """
     
     def create_chart_visualization(self, data: pd.DataFrame, chart_type: str, title: str, 
-                                 x_col: str = None, y_col: str = None, color_col: str = None) -> str:
+                             x_col: str = None, y_col: str = None, color_col: str = None) -> str:
         """Create chart visualization using Plotly Express"""
         try:
             if data is None or len(data) == 0:
                 return "Error: Tidak ada data untuk membuat grafik."
+            
+            # Clean up color_col parameter - convert empty string to None
+            if color_col == "" or color_col == "null" or color_col == "NULL":
+                color_col = None
             
             # Auto-detect columns if not provided
             if x_col is None or y_col is None:
@@ -1390,6 +1396,10 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                 numeric_cols = data.select_dtypes(include=['number']).columns.tolist()
                 y_col = numeric_cols[0] if numeric_cols else available_cols[1] if len(available_cols) > 1 else None
             
+            # Validate color_col exists in dataframe
+            if color_col and color_col not in available_cols:
+                color_col = None
+            
             fig = None
             
             # Create chart based on type
@@ -1398,10 +1408,10 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                     data, 
                     x=x_col, 
                     y=y_col, 
-                    color=color_col,
+                    color=color_col,  # This will now be None if empty
                     title=title,
                     labels={x_col: x_col.replace('_', ' ').title(), 
-                           y_col: y_col.replace('_', ' ').title() if y_col else 'Count'}
+                        y_col: y_col.replace('_', ' ').title() if y_col else 'Count'}
                 )
                 fig.update_layout(xaxis_tickangle=-45)
                 
@@ -1809,34 +1819,56 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
     def handle_function_call(self, output_item, user_question: str):
         """Handle function calls (maps, charts, nearby search)"""
         try:
-            if output_item.name == "create_map_visualization":
-                args = json.loads(output_item.arguments)
-                sql_query = args.get("sql_query")
-                map_title = args.get("title", "Property Locations")
+            if output_item.name == "create_chart_visualization":
+                try:
+                    args = json.loads(output_item.arguments)
+                except json.JSONDecodeError as e:
+                    st.error(f"JSON parsing error: {str(e)}")
+                    st.error(f"Raw arguments: {output_item.arguments}")
+                    
+                    # Fallback: use last result if available
+                    if hasattr(st.session_state, 'last_query_result') and st.session_state.last_query_result is not None:
+                        return self.create_chart_from_last_result(user_question)
+                    else:
+                        return 'data_query', f"Error parsing chart parameters: {str(e)}"
                 
+                chart_type = args.get("chart_type", "bar")
+                sql_query = args.get("sql_query")
+                chart_title = args.get("title", "Data Visualization")
+                x_col = args.get("x_column")
+                y_col = args.get("y_column") 
+                color_col = args.get("color_column")
+                
+                # Convert "null" string to None
+                if color_col in ["null", "NULL", "", None]:
+                    color_col = None
+                
+                # Execute SQL query
                 result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
                 
                 if result_df is not None and len(result_df) > 0:
-                    map_result = self.create_map_visualization(result_df, map_title)
+                    chart_result = self.create_chart_visualization(
+                        result_df, chart_type, chart_title, x_col, y_col, color_col
+                    )
                     
-                    with st.expander("📊 Query Details", expanded=False):
+                    with st.expander("📊 Data & Query Details", expanded=False):
                         st.code(sql_query, language="sql")
                         st.dataframe(result_df, use_container_width=True)
                     
                     st.session_state.last_query_result = result_df
-                    st.session_state.last_map_data = result_df.copy()
+                    st.session_state.last_sql_query = sql_query
                     
-                    response = f"""Saya telah membuat visualisasi peta untuk permintaan Anda.
+                    response = f"""Saya telah membuat visualisasi grafik untuk permintaan Anda.
 
-{map_result}
+    {chart_result}
 
-Peta menampilkan lokasi properti berdasarkan data yang tersedia."""
+    Grafik menampilkan data berdasarkan query yang dijalankan."""
                     
                     st.markdown("---")
                     st.markdown(response)
                     return 'data_query', response
                 else:
-                    error_msg = f"Tidak dapat membuat peta: {query_msg}"
+                    error_msg = f"Tidak dapat membuat grafik: {query_msg}"
                     st.error(error_msg)
                     return 'data_query', error_msg
             
