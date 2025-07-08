@@ -757,21 +757,17 @@ def smart_route_query(query: str) -> tuple:
     """Route simple queries directly, complex ones to agents"""
     query_lower = query.lower()
     
-    # Pattern 1: Count queries
+    # Pattern 1: Count queries (direct - no LLM needed)
     if any(pattern in query_lower for pattern in ["berapa proyek di", "ada berapa proyek", "jumlah proyek di"]):
         location = extract_location_from_query(query)
         if location:
             return "direct", ("count", location)
     
-    # Pattern 2: Top clients  
+    # Pattern 2: Top clients (direct - no LLM needed) 
     if any(pattern in query_lower for pattern in ["client terbesar", "klien terbesar", "pemberi tugas terbesar"]):
         return "direct", ("top_clients", None)
     
-    # Pattern 3: Map requests with context
-    if any(pattern in query_lower for pattern in ["buatkan peta", "tampilkan peta", "petanya"]) and hasattr(st.session_state, 'last_location'):
-        return "direct", ("map", st.session_state.last_location)
-    
-    # Pattern 4: Complex queries go to agents
+    # Everything else (including maps) goes to agents
     return "agents", None
 
 def execute_direct_query(query_type: str, location: str = None) -> str:
@@ -780,8 +776,7 @@ def execute_direct_query(query_type: str, location: str = None) -> str:
         return query_projects_count(location)
     elif query_type == "top_clients":
         return query_top_clients()
-    elif query_type == "map":
-        return create_map_visualization(location=location, title=f"Peta Proyek {location.title()}")
+    # Remove the map case completely
     else:
         return "Query type tidak dikenali"
 
