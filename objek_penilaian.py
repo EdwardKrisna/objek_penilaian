@@ -2582,9 +2582,6 @@ Apa yang ingin Anda ketahui hari ini?"""
                     "content": error_msg,
                     "visualization": None
                 })
-        
-        # Force re-run to display new messages
-        st.rerun()
     
     # Chat management
     st.markdown("---")
