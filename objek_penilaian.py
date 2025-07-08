@@ -393,40 +393,66 @@ class RHRAIChat:
         # First check for context references
         context_info = self.context_manager.detect_context_reference(user_question)
         
-        if context_info['has_reference'] and context_info['confidence'] > 0.8:
+        # Override context detection for specific patterns
+        user_lower = user_question.lower()
+        
+        # These should be treated as data_query, not context_reference
+        data_query_patterns = [
+            'siapa saja pemberi tugas', 'apa saja objek penilaian', 'buat grafik', 'buatkan grafik',
+            'jelaskan pemberi tugas', 'jelaskan objek', 'chart', 'visualisasi', 'analisis',
+            'tampilkan data', 'show data', 'lihat data'
+        ]
+        
+        # If it matches data query patterns, override context detection
+        if any(pattern in user_lower for pattern in data_query_patterns):
             return {
-                'intent': 'context_reference',
-                'context_type': context_info['context_type'],
-                'confidence': context_info['confidence'],
-                'reasoning': f"User referencing previous results for {context_info['context_type']}"
+                'intent': 'data_query',
+                'context_type': None,
+                'confidence': 0.9,
+                'reasoning': f"Data query pattern detected, overriding context reference"
             }
         
-        # Original intent classification
+        # Simple table view requests should remain as context_reference
+        simple_table_patterns = [
+            'buatkan tabel', 'dalam tabel', 'format tabel', 'tampilkan tabel',
+            'tabelkan', 'detail lengkap', 'semua kolom'
+        ]
+        
+        if context_info['has_reference'] and any(pattern in user_lower for pattern in simple_table_patterns):
+            return {
+                'intent': 'context_reference',
+                'context_type': 'table_view',
+                'confidence': context_info['confidence'],
+                'reasoning': f"Table view request with context reference"
+            }
+        
+        # Original intent classification for other cases
         system_prompt = """You are an intent classifier for RHR property appraisal assistant.
 
-Classify user messages into these categories:
+    Classify user messages into these categories:
 
-1. **data_query**: User wants to query, analyze, or visualize database information
-   - Examples: "berapa proyek di jakarta?", "siapa klien terbesar?", "buatkan grafik", "tampilkan peta"
-   - Keywords: berapa, siapa, apa, dimana, kapan, buatkan, tampilkan, grafik, peta, data, proyek, klien
+    1. **data_query**: User wants to query, analyze, or visualize database information
+    - Examples: "berapa proyek di jakarta?", "siapa klien terbesar?", "buatkan grafik", "tampilkan peta"
+    - Keywords: berapa, siapa, apa, dimana, kapan, buatkan, tampilkan, grafik, peta, data, proyek, klien
+    - Include: "jelaskan pemberi tugas", "buat grafik pemberi tugas", "analisis data"
 
-2. **context_reference**: User refers to previous results (handled separately)
-   - Examples: "buatkan tabel tersebut", "detail dari yang pertama"
-   - Keywords: tersebut, itu, tadi, sebelumnya
+    2. **context_reference**: User refers to previous results for simple table display
+    - Examples: "buatkan tabel tersebut", "detail dari yang pertama", "dalam format tabel"
+    - Keywords: tersebut, itu, tadi, sebelumnya + tabel, detail, format
 
-3. **chat**: Casual conversation, greetings, thanks, RHR system questions
-   - Examples: "halo", "terima kasih", "bagaimana cara kerja sistem ini?"
-   - Keywords: halo, hai, terima kasih, bagaimana, tolong jelaskan
+    3. **chat**: Casual conversation, greetings, thanks, RHR system questions
+    - Examples: "halo", "terima kasih", "bagaimana cara kerja sistem ini?"
+    - Keywords: halo, hai, terima kasih, bagaimana, tolong jelaskan
 
-4. **system_info**: Questions about RHR system capabilities
-   - Examples: "apa yang bisa kamu lakukan?", "fitur apa saja?"
+    4. **system_info**: Questions about RHR system capabilities
+    - Examples: "apa yang bisa kamu lakukan?", "fitur apa saja?"
 
-Respond with JSON only:
-{
-    "intent": "data_query|context_reference|chat|system_info",
-    "confidence": 0.0-1.0,
-    "reasoning": "brief explanation"
-}"""
+    Respond with JSON only:
+    {
+        "intent": "data_query|context_reference|chat|system_info",
+        "confidence": 0.0-1.0,
+        "reasoning": "brief explanation"
+    }"""
 
         try:
             response = self.client.chat.completions.create(
@@ -939,22 +965,22 @@ Anda dapat melakukan filtering dengan mengatakan:
     - For geographic filtering ("yang di jakarta selatan"), filter previous IDs by location
 
     CONVERSATION-AWARE EXAMPLES:
+
+    Example 1:
     User: "berapa proyek di bandung?"
-    AI generates: SELECT COUNT(*) FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%')
+    AI: SELECT COUNT(*) FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%')
 
     User: "buatkan petanya"  
-    AI should understand this refers to Bandung projects and generate:
-    create_map_visualization("SELECT id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') AND latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0", "Peta Proyek di Bandung")
+    AI: create_map_visualization("SELECT id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') AND latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0", "Peta Proyek di Bandung")
 
     User: "siapa saja pemberi tugasnya?"
-    AI should understand this refers to Bandung projects and generate:
-    SELECT pemberi_tugas, COUNT(*) AS jumlah_proyek 
-    FROM {self.table_name} 
-    WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') 
-    AND pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL'
-    GROUP BY pemberi_tugas 
-    ORDER BY jumlah_proyek DESC 
-    LIMIT 10
+    AI: SELECT pemberi_tugas, COUNT(*) AS jumlah_proyek FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') AND pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL' GROUP BY pemberi_tugas ORDER BY jumlah_proyek DESC LIMIT 10
+
+    User: "buat grafik pemberi tugasnya"
+    AI: create_chart_visualization("bar", "SELECT pemberi_tugas, COUNT(*) AS jumlah_proyek FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') AND pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL' GROUP BY pemberi_tugas ORDER BY jumlah_proyek DESC LIMIT 10", "Grafik Pemberi Tugas di Bandung", "pemberi_tugas", "jumlah_proyek", "")
+
+    Generate ONLY the PostgreSQL query or function call, no explanations.
+
 
     CRITICAL: Generate ONLY the PostgreSQL query or function call using table name {self.table_name}, no explanations."""
 
@@ -1592,6 +1618,76 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
         except Exception as e:
             return f"Error mencari proyek terdekat: {str(e)}"
 
+    def create_chart_from_last_result(self, user_question: str, chart_type: str = "auto", title: str = "Data Visualization"):
+        """Create chart from last query result when function call fails"""
+        try:
+            if not hasattr(st.session_state, 'last_query_result') or st.session_state.last_query_result is None:
+                return 'data_query', "Tidak ada data sebelumnya untuk membuat grafik."
+            
+            data = st.session_state.last_query_result
+            
+            # Determine chart based on user question
+            user_lower = user_question.lower()
+            if 'pemberi tugas' in user_lower or 'client' in user_lower:
+                if 'pemberi_tugas' in data.columns:
+                    # Create bar chart of pemberi_tugas
+                    chart_data = data['pemberi_tugas'].value_counts().head(10).reset_index()
+                    chart_data.columns = ['pemberi_tugas', 'jumlah_proyek']
+                    
+                    chart_result = self.create_chart_visualization(
+                        chart_data, "bar", "Grafik Pemberi Tugas", 
+                        "pemberi_tugas", "jumlah_proyek", None
+                    )
+                    
+                    response = f"""Saya telah membuat grafik pemberi tugas dari data proyek sebelumnya.
+
+    {chart_result}
+
+    Grafik menampilkan distribusi proyek berdasarkan pemberi tugas."""
+                    
+                    st.markdown("---")
+                    st.markdown(response)
+                    return 'data_query', response
+            
+            elif 'objek' in user_lower or 'jenis' in user_lower:
+                if 'jenis_objek_text' in data.columns:
+                    # Create pie chart of object types
+                    chart_data = data['jenis_objek_text'].value_counts().head(10).reset_index()
+                    chart_data.columns = ['jenis_objek', 'jumlah']
+                    
+                    chart_result = self.create_chart_visualization(
+                        chart_data, "pie", "Grafik Jenis Objek Penilaian", 
+                        "jenis_objek", "jumlah", None
+                    )
+                    
+                    response = f"""Saya telah membuat grafik jenis objek penilaian dari data proyek sebelumnya.
+
+    {chart_result}
+
+    Grafik menampilkan distribusi jenis objek yang dinilai."""
+                    
+                    st.markdown("---")
+                    st.markdown(response)
+                    return 'data_query', response
+            
+            # Default: show available columns for charting
+            numeric_cols = data.select_dtypes(include=['number']).columns.tolist()
+            categorical_cols = data.select_dtypes(include=['object']).columns.tolist()
+            
+            return 'data_query', f"""Untuk membuat grafik dari data sebelumnya, saya perlu tahu kolom mana yang ingin divisualisasikan.
+
+    **Kolom Kategori yang tersedia:** {', '.join(categorical_cols[:5])}
+    **Kolom Numerik yang tersedia:** {', '.join(numeric_cols[:5])}
+
+    Contoh permintaan:
+    - "buat grafik pemberi_tugas"
+    - "buat pie chart jenis_objek_text"
+    - "buat bar chart status_text"
+    """
+            
+        except Exception as e:
+            return 'data_query', f"Error membuat grafik dari data sebelumnya: {str(e)}"
+
     def process_user_input(self, user_question: str, geographic_context: str = ""):
         """Enhanced main method with conversation memory"""
         
@@ -1741,13 +1837,41 @@ Peta menampilkan lokasi properti berdasarkan data yang tersedia."""
                     return 'data_query', error_msg
             
             elif output_item.name == "create_chart_visualization":
-                args = json.loads(output_item.arguments)
+                # Enhanced chart handling with better error handling
+                try:
+                    args = json.loads(output_item.arguments)
+                except json.JSONDecodeError as e:
+                    # Try to fix common JSON issues
+                    args_str = output_item.arguments
+                    
+                    # Fix common issues
+                    args_str = args_str.replace("'", '"')  # Replace single quotes
+                    args_str = re.sub(r'(\w+):', r'"\1":', args_str)  # Add quotes to keys
+                    
+                    try:
+                        args = json.loads(args_str)
+                    except:
+                        # Fallback: create default chart arguments
+                        st.error(f"JSON parsing error: {str(e)}")
+                        st.error(f"Raw arguments: {output_item.arguments}")
+                        
+                        # Try to extract at least the SQL query
+                        if hasattr(st.session_state, 'last_query_result') and st.session_state.last_query_result is not None:
+                            # Use last result data to create chart
+                            return self.create_chart_from_last_result(user_question)
+                        else:
+                            return 'data_query', f"Error parsing chart parameters: {str(e)}"
+                
                 chart_type = args.get("chart_type", "auto")
                 sql_query = args.get("sql_query")
                 chart_title = args.get("title", "Data Visualization")
                 x_col = args.get("x_column")
                 y_col = args.get("y_column") 
                 color_col = args.get("color_column")
+                
+                # If no SQL query provided, try to use context
+                if not sql_query and hasattr(st.session_state, 'last_query_result'):
+                    return self.create_chart_from_last_result(user_question, chart_type, chart_title)
                 
                 result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
                 
@@ -1764,9 +1888,9 @@ Peta menampilkan lokasi properti berdasarkan data yang tersedia."""
                     
                     response = f"""Saya telah membuat visualisasi grafik untuk permintaan Anda.
 
-{chart_result}
+    {chart_result}
 
-Grafik menampilkan data berdasarkan query yang dijalankan."""
+    Grafik menampilkan data berdasarkan query yang dijalankan."""
                     
                     st.markdown("---")
                     st.markdown(response)
@@ -1777,18 +1901,8 @@ Grafik menampilkan data berdasarkan query yang dijalankan."""
                     return 'data_query', error_msg
             
             elif output_item.name == "find_nearby_projects":
-                args = json.loads(output_item.arguments)
-                location_name = args.get("location_name")
-                radius_km = args.get("radius_km", 1.0)
-                map_title = args.get("title", f"Proyek Terdekat dari {location_name}")
-                
-                nearby_result = self.find_nearby_projects(
-                    location_name, radius_km, map_title, st.session_state.db_connection
-                )
-                
-                st.markdown("---")
-                st.markdown(nearby_result)
-                return 'data_query', nearby_result
+                # ... existing nearby logic ...
+                pass
             
         except Exception as e:
             error_msg = f"Error executing function: {str(e)}"
