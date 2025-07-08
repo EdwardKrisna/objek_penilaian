@@ -865,10 +865,13 @@ Anda dapat melakukan filtering dengan mengatakan:
         → Creates various charts (bar, pie, line, scatter, histogram) from data.
 
     **RULES**  
-    - If the user asks for charts/graphs ("grafik", "chart", "barchart", "pie", etc.), use `create_chart_visualization` function. If user asks for charts/graphs of previous data, use the same WHERE conditions from conversation context
-    - If the user asks for projects near a specific location, use `find_nearby_projects` function. If user asks for maps of previous data, use the same location filters from conversation context
+    - If the user asks for charts/graphs ("grafik", "chart", "barchart", "pie", etc.), use `create_chart_visualization` function. If user asks for charts/graphs of previous data, use the same WHERE conditions from conversation context.
+    - If the user asks for projects near a specific location, use `find_nearby_projects` function. If user asks for maps of previous data, use the same location filters from conversation context.
     - If the user asks for a general map, use `create_map_visualization` function.  
     - Otherwise return *only* a PostgreSQL query (no explanations).
+
+    **CRITICAL: ALWAYS USE THE EXACT TABLE NAME: {self.table_name}**
+    **DO NOT use "objek_penilaian" or any other table name variations**
 
     TABLE: {self.table_name}
 
@@ -922,6 +925,7 @@ Anda dapat melakukan filtering dengan mengatakan:
     12. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns with NULL filtering
     13. Use direct column names (no JOINs needed as all data is in main table)
     14. MANDATORY: Filter out NULL, empty strings, and 'NULL' text values in WHERE clauses
+    15. **ALWAYS USE TABLE NAME: {self.table_name} - NEVER use "objek_penilaian" or other names**
 
     CONTEXT AWARENESS RULES:
     - Remember previous query results and their IDs for follow-up questions
@@ -936,14 +940,24 @@ Anda dapat melakukan filtering dengan mengatakan:
 
     CONVERSATION-AWARE EXAMPLES:
     User: "berapa proyek di bandung?"
-    AI generates: SELECT COUNT(*) FROM table WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%')
+    AI generates: SELECT COUNT(*) FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%')
 
     User: "buatkan petanya"  
     AI should understand this refers to Bandung projects and generate:
     create_map_visualization("SELECT id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') AND latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0", "Peta Proyek di Bandung")
 
-    Generate ONLY the PostgreSQL query or function call, no explanations."""
-        
+    User: "siapa saja pemberi tugasnya?"
+    AI should understand this refers to Bandung projects and generate:
+    SELECT pemberi_tugas, COUNT(*) AS jumlah_proyek 
+    FROM {self.table_name} 
+    WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') 
+    AND pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL'
+    GROUP BY pemberi_tugas 
+    ORDER BY jumlah_proyek DESC 
+    LIMIT 10
+
+    CRITICAL: Generate ONLY the PostgreSQL query or function call using table name {self.table_name}, no explanations."""
+
         # Check for chart/graph requests - more comprehensive detection
         is_chart_request = bool(re.search(r"\b(grafik|chart|barchart|pie|line|scatter|histogram|graph|visualisasi data|buatkan grafik)\b", user_question, re.I))
         is_nearby_request = bool(re.search(r"\b(terdekat|sekitar|dekat|nearby|near|radius)\b", user_question, re.I))
@@ -959,7 +973,7 @@ Anda dapat melakukan filtering dengan mengatakan:
                     "properties": {
                         "sql_query": {
                             "type": "string",
-                            "description": "SQL query including id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk"
+                            "description": f"SQL query including id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk FROM {self.table_name}"
                         },
                         "title": { "type": "string" }
                     },
@@ -1004,7 +1018,7 @@ Anda dapat melakukan filtering dengan mengatakan:
                         },
                         "sql_query": {
                             "type": "string",
-                            "description": "SQL query to get data for the chart"
+                            "description": f"SQL query to get data for the chart FROM {self.table_name}"
                         },
                         "title": { "type": "string" },
                         "x_column": {
@@ -1607,8 +1621,33 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
         
         return result_type, response
     
+    def validate_and_fix_sql(self, sql_query: str) -> str:
+        """Validate and fix common SQL issues"""
+        
+        # Fix table name issues
+        wrong_table_patterns = [
+            r'\bFROM\s+objek_penilaian\b(?!\w)',
+            r'\bfrom\s+objek_penilaian\b(?!\w)',
+            r'\bJOIN\s+objek_penilaian\b(?!\w)',
+            r'\bjoin\s+objek_penilaian\b(?!\w)'
+        ]
+        
+        for pattern in wrong_table_patterns:
+            sql_query = re.sub(pattern, f'FROM {self.table_name}', sql_query, flags=re.IGNORECASE)
+        
+        # Remove multiple semicolons that cause issues
+        sql_query = re.sub(r';\s*SELECT', '; -- SECOND QUERY REMOVED: SELECT', sql_query)
+        
+        # Ensure single query execution
+        if sql_query.count(';') > 1:
+            # Take only the first complete query
+            first_query = sql_query.split(';')[0] + ';'
+            sql_query = first_query
+        
+        return sql_query
+
     def handle_data_query(self, user_question: str, geographic_context: str = ""):
-        """Handle data-related queries"""
+        """Handle data-related queries with SQL validation"""
         try:
             # Check for reference queries first
             if hasattr(st.session_state, 'last_query_result'):
@@ -1616,7 +1655,8 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                     user_question, st.session_state.last_query_result
                 )
                 if reference_query:
-                    sql_query = reference_query
+                    # Validate and fix the reference query
+                    sql_query = self.validate_and_fix_sql(reference_query)
                     result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
                     
                     if result_df is not None:
@@ -1643,6 +1683,9 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                     sql_query = ai_response.output_text.strip()
                     
                     if sql_query and "SELECT" in sql_query.upper():
+                        # Validate and fix SQL before execution
+                        sql_query = self.validate_and_fix_sql(sql_query)
+                        
                         result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
                         
                         if result_df is not None:
@@ -1651,7 +1694,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                                 st.dataframe(result_df, use_container_width=True)
                             
                             st.session_state.last_query_result = result_df
-                            st.session_state.last_sql_query = sql_query  # Add this line
+                            st.session_state.last_sql_query = sql_query
                             formatted_response = self.format_response(user_question, result_df, sql_query)
                             return 'data_query', formatted_response
                         else:
