@@ -776,7 +776,7 @@ def smart_route_query(query: str) -> tuple:
     # Pattern 4: Complex queries go to agents
     return "agents", None
 
-async def execute_direct_query(query_type: str, location: str = None) -> str:
+def execute_direct_query(query_type: str, location: str = None) -> str:
     """Execute direct queries without LLM calls"""
     if query_type == "count":
         return query_projects_count(location)
@@ -801,13 +801,7 @@ async def process_user_query(query: str, orchestrator_agent: Agent) -> str:
             response_container = st.empty()
             
             with st.spinner("Memproses query..."):
-                # Execute in thread pool to avoid blocking
-                loop = asyncio.get_event_loop()
-                with ThreadPoolExecutor() as executor:
-                    result = await loop.run_in_executor(
-                        executor, 
-                        lambda: execute_direct_query(query_type, location)
-                    )
+                result = execute_direct_query(query_type, location)
             
             response_container.markdown(result)
             return result
