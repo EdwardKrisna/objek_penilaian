@@ -303,7 +303,7 @@ class RHRAIChat:
             self.conversation_history = self.conversation_history[-5:]
     
     def get_conversation_context(self) -> str:
-        """Generate conversation context for AI"""
+        """Generate detailed conversation context for AI"""
         if not self.conversation_history:
             return ""
         
@@ -314,15 +314,31 @@ class RHRAIChat:
             
             if entry['has_data'] and entry['data_summary']:
                 summary = entry['data_summary']
-                context_parts.append(f"AI generated query that returned {summary['record_count']} records")
+                context_parts.append(f"AI returned {summary['record_count']} records")
                 
-                # Add location context if available
-                if 'wadmpr' in summary['sample_values']:
-                    provinces = list(summary['sample_values']['wadmpr'].keys())
-                    context_parts.append(f"Primary locations: {', '.join(provinces[:2])}")
-                if 'wadmkk' in summary['sample_values']:
-                    cities = list(summary['sample_values']['wadmkk'].keys())
-                    context_parts.append(f"Primary cities: {', '.join(cities[:2])}")
+                # Add specific location context
+                if 'sample_values' in summary:
+                    if 'wadmpr' in summary['sample_values']:
+                        provinces = list(summary['sample_values']['wadmpr'].keys())
+                        context_parts.append(f"Locations: {', '.join(provinces[:2])}")
+                    if 'wadmkk' in summary['sample_values']:
+                        cities = list(summary['sample_values']['wadmkk'].keys())
+                        context_parts.append(f"Cities: {', '.join(cities[:2])}")
+                    
+                    # Add available data types
+                    if 'pemberi_tugas' in summary['sample_values']:
+                        clients = list(summary['sample_values']['pemberi_tugas'].keys())
+                        context_parts.append(f"Available clients data: {len(clients)} unique clients")
+                    if 'jenis_objek_text' in summary['sample_values']:
+                        objects = list(summary['sample_values']['jenis_objek_text'].keys())
+                        context_parts.append(f"Available object types: {len(objects)} types")
+            
+            # Add SQL context if available
+            if entry.get('sql_query'):
+                # Extract key filters from SQL
+                sql = entry['sql_query'].lower()
+                if 'where' in sql:
+                    context_parts.append(f"Previous filters applied")
         
         return "\n".join(context_parts)
     
@@ -388,34 +404,60 @@ class RHRAIChat:
         return location_name, radius_km
     
     def classify_user_intent(self, user_question: str) -> dict:
-        """Enhanced intent classifier that considers conversation context"""
+        """Enhanced intent classifier that properly handles contextual questions"""
         
-        # First check for context references
-        context_info = self.context_manager.detect_context_reference(user_question)
-        
-        # Override context detection for specific patterns
         user_lower = user_question.lower()
         
-        # These should be treated as data_query, not context_reference
-        data_query_patterns = [
-            'siapa saja pemberi tugas', 'apa saja objek penilaian', 'buat grafik', 'buatkan grafik',
-            'jelaskan pemberi tugas', 'jelaskan objek', 'chart', 'visualisasi', 'analisis',
-            'tampilkan data', 'show data', 'lihat data'
+        # These patterns should ALWAYS be treated as data_query, regardless of context words
+        strong_data_query_patterns = [
+            # Questions about project data
+            'siapa saja pemberi tugas', 'siapa pemberi tugas', 'pemberi tugasnya',
+            'apa saja objek penilaian', 'objek penilaiannya', 'jenis objek',
+            
+            # Analysis requests
+            'buat grafik', 'buatkan grafik', 'chart', 'visualisasi', 'analisis',
+            'tampilkan data', 'show data', 'lihat data',
+            
+            # Explanation requests about data
+            'jelaskan pemberi tugas', 'jelaskan objek', 'jelaskan data',
+            'explain', 'breakdown', 'summary data',
+            
+            # Questions with "tersebut" that ask for specific data
+            'pada proyek tersebut siapa', 'proyek tersebut apa',
+            'dari data tersebut', 'hasil tersebut'
         ]
         
-        # If it matches data query patterns, override context detection
-        if any(pattern in user_lower for pattern in data_query_patterns):
+        # If it matches strong data query patterns, it's definitely data_query
+        if any(pattern in user_lower for pattern in strong_data_query_patterns):
             return {
                 'intent': 'data_query',
-                'context_type': None,
-                'confidence': 0.9,
-                'reasoning': f"Data query pattern detected, overriding context reference"
+                'context_type': 'contextual_analysis',
+                'confidence': 0.95,
+                'reasoning': f"Strong data query pattern detected: asking for specific project information"
             }
         
-        # Simple table view requests should remain as context_reference
+        # Map and chart requests (also high priority)
+        visualization_patterns = [
+            'buatkan peta', 'buat peta', 'petanya', 'map',
+            'buatkan grafik', 'buat grafik', 'grafiknya', 'chart'
+        ]
+        
+        if any(pattern in user_lower for pattern in visualization_patterns):
+            return {
+                'intent': 'data_query',
+                'context_type': 'visualization',
+                'confidence': 0.95,
+                'reasoning': f"Visualization request detected"
+            }
+        
+        # Check for context references for simple table display only
+        context_info = self.context_manager.detect_context_reference(user_question)
+        
+        # Simple table view requests (only these should be context_reference)
         simple_table_patterns = [
             'buatkan tabel', 'dalam tabel', 'format tabel', 'tampilkan tabel',
-            'tabelkan', 'detail lengkap', 'semua kolom'
+            'tabelkan', 'detail lengkap', 'semua kolom',
+            'show table', 'display table'
         ]
         
         if context_info['has_reference'] and any(pattern in user_lower for pattern in simple_table_patterns):
@@ -423,10 +465,26 @@ class RHRAIChat:
                 'intent': 'context_reference',
                 'context_type': 'table_view',
                 'confidence': context_info['confidence'],
-                'reasoning': f"Table view request with context reference"
+                'reasoning': f"Simple table view request with context reference"
             }
         
-        # Original intent classification for other cases
+        # Greeting and casual conversation patterns
+        casual_patterns = [
+            'halo', 'hai', 'hello', 'selamat', 'terima kasih', 'thanks',
+            'bagaimana cara', 'apa yang bisa', 'fitur apa',
+            'tolong bantu saya', 'bisa bantu',
+            'sistem ini', 'aplikasi ini'
+        ]
+        
+        if any(pattern in user_lower for pattern in casual_patterns):
+            return {
+                'intent': 'chat',
+                'context_type': None,
+                'confidence': 0.9,
+                'reasoning': f"Casual conversation pattern detected"
+            }
+        
+        # Use GPT for unclear cases
         system_prompt = """You are an intent classifier for RHR property appraisal assistant.
 
     Classify user messages into these categories:
@@ -435,17 +493,20 @@ class RHRAIChat:
     - Examples: "berapa proyek di jakarta?", "siapa klien terbesar?", "buatkan grafik", "tampilkan peta"
     - Keywords: berapa, siapa, apa, dimana, kapan, buatkan, tampilkan, grafik, peta, data, proyek, klien
     - Include: "jelaskan pemberi tugas", "buat grafik pemberi tugas", "analisis data"
+    - IMPORTANT: Questions like "jelaskan pada proyek tersebut siapa saja pemberi tugasnya" = data_query
 
-    2. **context_reference**: User refers to previous results for simple table display
-    - Examples: "buatkan tabel tersebut", "detail dari yang pertama", "dalam format tabel"
-    - Keywords: tersebut, itu, tadi, sebelumnya + tabel, detail, format
+    2. **context_reference**: User refers to previous results ONLY for simple table display
+    - Examples: "buatkan tabel tersebut", "dalam format tabel"
+    - Keywords: tabel + tersebut, format tabel
 
-    3. **chat**: Casual conversation, greetings, thanks, RHR system questions
-    - Examples: "halo", "terima kasih", "bagaimana cara kerja sistem ini?"
-    - Keywords: halo, hai, terima kasih, bagaimana, tolong jelaskan
+    3. **chat**: Casual conversation, greetings, thanks, unclear requests
+    - Examples: "halo", "terima kasih", "tolong bantu saya"
+    - Keywords: halo, hai, terima kasih, bagaimana, tolong jelaskan (without specific data request)
 
     4. **system_info**: Questions about RHR system capabilities
     - Examples: "apa yang bisa kamu lakukan?", "fitur apa saja?"
+
+    CRITICAL: If user asks about project data (pemberi tugas, objek penilaian, etc.) even with "tersebut", it's data_query!
 
     Respond with JSON only:
     {
@@ -469,69 +530,12 @@ class RHRAIChat:
             return result
             
         except Exception as e:
+            # Default to data_query for safety
             return {
                 "intent": "data_query",
                 "confidence": 0.5,
-                "reasoning": f"Classification failed: {str(e)}"
+                "reasoning": f"Classification failed, defaulting to data_query: {str(e)}"
             }
-    
-    def handle_chat_conversation(self, user_question: str) -> str:
-        """Handle domain-focused casual conversation and system info questions"""
-        system_prompt = """You are RHR assistant, a specialized AI for property appraisal company analysis.
-
-You are DOMAIN-FOCUSED and help ONLY with RHR property appraisal work:
-
-🏢 **Core Capabilities:**
-- Analyzing property appraisal projects data
-- Creating maps and location visualizations  
-- Finding nearby projects using geocoding
-- Generating charts and business reports
-- Answering questions about the RHR database system
-
-📍 **Location Features:**
-"proyek terdekat dari Mall Taman Anggrek radius 1km"
-
-📊 **Data Analysis:**
-"berapa proyek di Jakarta?", "siapa klien terbesar?", "status proyek terbaru"
-
-📈 **Visualizations:**
-"buatkan grafik pemberi tugas per cabang", "peta semua proyek di Bali"
-
-🔍 **Smart Follow-ups:**
-Support contextual questions like "yang pertama", "detail client tersebut"
-
-**IMPORTANT BOUNDARIES:**
-- ONLY discuss RHR property appraisal business topics
-- For non-work topics, politely redirect to RHR capabilities
-- Stay professional and business-focused
-- Always respond in friendly Bahasa Indonesia
-
-If asked about non-RHR topics, say: "Saya khusus membantu analisis data penilaian properti RHR. Mari kita fokus pada proyek dan data bisnis Anda. Apa yang ingin Anda analisis tentang portfolio properti RHR?"
-"""
-
-        try:
-            response = self.client.chat.completions.create(
-                model="gpt-4.1-mini",
-                stream=True,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_question}
-                ],
-                max_tokens=1000,
-                temperature=0.3
-            )
-            
-            full_response = ""
-            response_container = st.empty()
-            for chunk in response:
-                if chunk.choices[0].delta.content:
-                    full_response += chunk.choices[0].delta.content
-                    response_container.markdown(full_response + "▌")
-            response_container.markdown(full_response)
-            return full_response
-            
-        except Exception as e:
-            return f"Maaf, terjadi kesalahan: {str(e)}"
     
     def handle_context_reference(self, user_question: str, context_type: str = None) -> tuple:
         """Handle references to previous results"""
