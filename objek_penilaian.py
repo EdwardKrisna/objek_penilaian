@@ -159,9 +159,20 @@ class GeocodeService:
 
 # Agent Tools
 @function_tool
-def create_map_visualization(sql_query: str, title: str = "Property Locations") -> str:
+def create_map_visualization(location: str = None, sql_query: str = None, title: str = "Property Locations") -> str:
     """Create a map visualization of properties from database query results"""
     try:
+        if location and not sql_query:
+            table_name = st.secrets["database"]["table_name"]
+            sql_query = f"""
+            SELECT id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk 
+            FROM {table_name} 
+            WHERE (wadmpr ILIKE '%{location}%' OR wadmkk ILIKE '%{location}%' OR wadmkc ILIKE '%{location}%')
+            AND latitude IS NOT NULL AND longitude IS NOT NULL 
+            AND latitude != 0 AND longitude != 0
+            LIMIT 200
+            """
+
         # Execute query
         result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
         
