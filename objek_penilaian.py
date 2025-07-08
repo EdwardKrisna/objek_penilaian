@@ -1136,15 +1136,15 @@ Anda dapat melakukan filtering dengan mengatakan:
         return response
     
     def format_response(self, user_question: str, query_results: pd.DataFrame, sql_query: str) -> str:
-        """Use GPT-4.1-mini to format response with controlled streaming"""
+        """Use GPT-4.1-mini to format response in Bahasa Indonesia"""
         try:
             prompt = f"""User asked: {user_question}
 
-    SQL Query executed: {sql_query}
-    Results: {query_results.to_dict('records') if len(query_results) > 0 else 'No results found'}
+SQL Query executed: {sql_query}
+Results: {query_results.to_dict('records') if len(query_results) > 0 else 'No results found'}
 
-    Provide clear answer in Bahasa Indonesia. Focus on business insights, not technical details.
-    """
+Provide clear answer in Bahasa Indonesia. Focus on business insights, not technical details.
+"""
 
             response = self.client.chat.completions.create(
                 model="gpt-4.1-mini",
@@ -1163,32 +1163,16 @@ Anda dapat melakukan filtering dengan mengatakan:
                 temperature=0.3
             )
             
-            # Stream the response in the CURRENT chat context
-            # Only stream if we're in an active chat context
-            if hasattr(st.session_state, 'current_chat_active'):
-                full_response = ""
-                placeholder = st.empty()
-                
-                for chunk in response:
-                    if chunk.choices[0].delta.content:
-                        full_response += chunk.choices[0].delta.content
-                        placeholder.markdown(full_response + "▌")
-                
-                # Remove the cursor
-                placeholder.markdown(full_response)
-                return full_response
-            else:
-                # If not in active chat, just collect all chunks
-                full_response = ""
-                for chunk in response:
-                    if chunk.choices[0].delta.content:
-                        full_response += chunk.choices[0].delta.content
-                return full_response
-                
+            full_response = ""
+            response_container = st.empty()
+            for chunk in response:
+                if chunk.choices[0].delta.content:
+                    full_response += chunk.choices[0].delta.content
+                    response_container.markdown(full_response + "▌")
+            return full_response
+            
         except Exception as e:
             return f"Maaf, terjadi kesalahan dalam memproses hasil: {str(e)}"
-
-
     
     def create_map_visualization(self, query_data: pd.DataFrame, title: str = "Property Locations") -> str:
         """Create map visualization from query data with persistence"""
@@ -2436,7 +2420,7 @@ def render_geographic_filter():
 
 
 def render_ai_chat():
-    """Fixed chat interface without double output"""
+    """Optimized chat interface with better performance"""
     st.markdown('<div class="section-header">AI Chat</div>', unsafe_allow_html=True)
     
     # Use cached database connection
@@ -2445,6 +2429,7 @@ def render_ai_chat():
         st.error("Database connection failed")
         return
     
+    # Store in session state for AI chat to use
     st.session_state.db_connection = db_connection
     
     # Use cached AI client
@@ -2461,12 +2446,30 @@ def render_ai_chat():
         welcome_msg = """Halo! Saya asisten AI RHR Anda 👋
 
 Saya dapat membantu Anda dengan:
-- 📊 Analisis data proyek
-- 🗺️ Visualisasi lokasi  
-- 📈 Grafik dan chart
-- 💬 Percakapan umum
 
-Apa yang ingin Anda ketahui hari ini?"""
+**📊 Analisis Data:**
+- "Berapa banyak proyek yang kita miliki di Jakarta?"
+- "Siapa 5 klien utama kita?"
+- "Jenis properti apa yang paling sering kita nilai?"
+
+**🗺️ Visualisasi Lokasi:**
+- "Buatkan peta proyek terdekat dari Setiabudi One dengan radius 1 km"
+- "Tampilkan proyek sekitar Mall Taman Anggrek dalam radius 500 m"
+
+**📈 Grafik dan Chart:**
+- "Buatkan grafik pemberi tugas di tiap cabang"
+- "Grafik pie untuk jenis objek penilaian"
+
+**💬 Percakapan Umum:**
+- Bertanya tentang fitur sistem
+- Minta bantuan atau penjelasan
+
+**🔍 Follow-up Contextual:**
+- "Buatkan tabel dari data tersebut"
+- "Detail lengkap yang pertama"
+- "Yang di Jakarta Selatan"
+
+Apa yang ingin Anda ketahui atau lakukan hari ini?"""
         
         st.session_state.chat_messages.append({
             "role": "assistant",
@@ -2483,33 +2486,35 @@ Apa yang ingin Anda ketahui hari ini?"""
             if message.get("visualization"):
                 render_stored_visualization_cached(message["visualization"], i)
     
-    # Chat input processing - ONLY when new message is sent
+    # Chat input processing (only when new message is sent)
     if prompt := st.chat_input("Ask me about your projects or just chat..."):
-        # Add user message to chat history
+        # Add user message to history first
         st.session_state.chat_messages.append({
             "role": "user", 
             "content": prompt,
             "visualization": None
         })
         
-        # Display the user message immediately (since it's new)
+        # Display user message immediately
         with st.chat_message("user"):
             st.markdown(prompt)
         
-        # Process assistant response
+        # Process the assistant response
         with st.chat_message("assistant"):
             try:
                 geo_context = st.session_state.ai_chat.get_geographic_context_cached()
+                
+                # Process user input
                 intent, final_response, viz_data = st.session_state.ai_chat.process_user_input(prompt, geo_context)
                 
-                # Display the response immediately
+                # Display response immediately
                 st.markdown(final_response)
                 
                 # Display visualization if present
                 if viz_data:
                     render_stored_visualization_cached(viz_data, len(st.session_state.chat_messages))
                 
-                # Add assistant response to history (but don't re-display)
+                # ONLY add to history AFTER displaying (no re-run needed)
                 st.session_state.chat_messages.append({
                     "role": "assistant",
                     "content": final_response,
@@ -2519,16 +2524,11 @@ Apa yang ingin Anda ketahui hari ini?"""
             except Exception as e:
                 error_msg = f"Maaf, terjadi kesalahan: {str(e)}"
                 st.error(error_msg)
-                
-                # Add error message to history
                 st.session_state.chat_messages.append({
                     "role": "assistant", 
                     "content": error_msg,
                     "visualization": None
                 })
-        
-        # DO NOT use st.rerun() here - it causes the double display
-        # The messages are already displayed above and will appear in history on next interaction
     
     # Chat management
     st.markdown("---")
@@ -2537,16 +2537,17 @@ Apa yang ingin Anda ketahui hari ini?"""
     with col1:
         if st.button("Clear Chat", use_container_width=True):
             st.session_state.chat_messages = []
-            # Clear visualization rendering cache
+            # Clear ALL visualization related cache
             keys_to_delete = [key for key in st.session_state.keys() if key.startswith("rendered_")]
             for key in keys_to_delete:
                 del st.session_state[key]
-            # Clear query results
+            # Also clear any other visualization state
             if 'last_query_result' in st.session_state:
                 del st.session_state.last_query_result
             if 'last_map_data' in st.session_state:
                 del st.session_state.last_map_data
             st.rerun()
+
     
     with col2:
         if st.button("Reset Context", use_container_width=True):
