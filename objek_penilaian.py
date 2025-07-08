@@ -2082,5 +2082,5 @@ def main():
         st.sidebar.info(f"Chat Messages: {len(st.session_state.chat_messages)}")
 
 if __name__ == "__main__":
-    main().error(f"Geocoding error: {str(e)}")
+    main()
             
