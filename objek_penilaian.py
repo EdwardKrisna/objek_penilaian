@@ -2246,7 +2246,39 @@ def render_ai_chat():
     
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
-        # Add welcome message...
+        # Add welcome message
+        welcome_msg = """Halo! Saya asisten AI RHR Anda 👋
+
+Saya dapat membantu Anda dengan:
+
+**📊 Analisis Data:**
+- "Berapa banyak proyek yang kita miliki di Jakarta?"
+- "Siapa 5 klien utama kita?"
+- "Jenis properti apa yang paling sering kita nilai?"
+
+**🗺️ Visualisasi Lokasi:**
+- "Buatkan peta proyek terdekat dari Setiabudi One dengan radius 1 km"
+- "Tampilkan proyek sekitar Mall Taman Anggrek dalam radius 500 m"
+
+**📈 Grafik dan Chart:**
+- "Buatkan grafik pemberi tugas di tiap cabang"
+- "Grafik pie untuk jenis objek penilaian"
+
+**💬 Percakapan Umum:**
+- Bertanya tentang fitur sistem
+- Minta bantuan atau penjelasan
+
+**🔍 Follow-up Contextual:**
+- "Buatkan tabel dari data tersebut"
+- "Detail lengkap yang pertama"
+- "Yang di Jakarta Selatan"
+
+Apa yang ingin Anda ketahui atau lakukan hari ini?"""
+        
+        st.session_state.chat_messages.append({
+            "role": "assistant",
+            "content": welcome_msg
+        })
     
     # Display persistent visualizations first
     display_persistent_visualizations()
