@@ -1780,7 +1780,26 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
     def handle_data_query(self, user_question: str, geographic_context: str = ""):
         """Handle data-related queries using o4-mini only"""
         try:
-            # Check for reference queries first
+            # Handle direct SQL commands first
+            if user_question.strip().upper().startswith(('SELECT', 'WITH', 'SHOW')):
+                sql_query = user_question.strip()
+                result_df, query_msg = self.db_connection.execute_query(sql_query)
+                
+                if result_df is not None:
+                    # Show query results
+                    if st.session_state.get('show_queries', True):
+                        with st.expander("📊 Direct SQL Query Results", expanded=True):
+                            st.code(sql_query, language="sql")
+                            st.dataframe(result_df, use_container_width=True)
+                    
+                    st.session_state.last_query_result = result_df
+                    st.session_state.last_sql_query = sql_query
+                    
+                    return 'data_query', f"✅ SQL query executed successfully. Found {len(result_df)} records.", None
+                else:
+                    return 'data_query', f"❌ SQL execution failed: {query_msg}", None
+            
+            # Check for reference queries
             if hasattr(st.session_state, 'last_query_result'):
                 reference_query = self.handle_reference_query(
                     user_question, st.session_state.last_query_result
@@ -1792,9 +1811,12 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     if result_df is not None:
                         # Show query results if enabled
                         if st.session_state.get('show_queries', True):
-                            with st.expander("📊 Query Results & Details", expanded=False):
+                            with st.expander("📊 Reference Query Results", expanded=False):
                                 st.code(sql_query, language="sql")
                                 st.dataframe(result_df, use_container_width=True)
+                        
+                        st.session_state.last_query_result = result_df
+                        st.session_state.last_sql_query = sql_query
                         
                         # Generate explanation using o4-mini
                         explanation_prompt = f"""
@@ -1802,23 +1824,20 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                         SQL Query: {sql_query}
                         Results: {len(result_df)} records found
                         
-                        Provide clear Indonesian explanation focusing on business insights.
+                        Provide clear Indonesian explanation with specific numbers and business insights.
                         """
                         
                         explanation_response = self.client.responses.create(
                             model="o4-mini",
                             reasoning={"effort": "low"},
                             input=[
-                                {"role": "system", "content": "You explain database results in clear Bahasa Indonesia with business insights."},
+                                {"role": "system", "content": "You explain database results in clear Bahasa Indonesia with business insights. Always mention specific numbers."},
                                 {"role": "user", "content": explanation_prompt}
                             ],
                             max_output_tokens=500
                         )
                         
-                        formatted_response = explanation_response.output_text if hasattr(explanation_response, 'output_text') else "Query berhasil dijalankan."
-                        
-                        st.session_state.last_query_result = result_df
-                        st.session_state.last_sql_query = sql_query
+                        formatted_response = explanation_response.output_text if hasattr(explanation_response, 'output_text') else f"Query berhasil dijalankan, ditemukan {len(result_df)} records."
                         
                         return 'data_query', formatted_response, None
                     else:
@@ -1826,8 +1845,6 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
             
             # Generate SQL query or function call
             ai_response = self.generate_query(user_question, geographic_context)
-            if hasattr(ai_response, 'output_text'):
-                st.write("DEBUG - AI Response:", ai_response.output_text)
             
             if ai_response and hasattr(ai_response, 'output') and ai_response.output:
                 # Process function calls (maps, charts, nearby search)
@@ -1840,6 +1857,10 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                 if hasattr(ai_response, 'output_text') and ai_response.output_text:
                     response_text = ai_response.output_text.strip()
                     
+                    # Debug: Show what AI returned
+                    if st.session_state.get('debug_mode', False):
+                        st.write("DEBUG - AI Response:", response_text)
+                    
                     # Parse the unified response
                     sql_query, explanation, response_type = self.parse_unified_response(response_text)
                     
@@ -1848,6 +1869,11 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     elif response_type == "data_query" and sql_query:
                         # Clean and execute SQL
                         sql_query = self.clean_and_validate_sql(sql_query)
+                        
+                        # DEBUG: Show the cleaned SQL
+                        if st.session_state.get('debug_mode', False):
+                            st.write("DEBUG - Cleaned SQL:", sql_query)
+                        
                         result_df, query_msg = self.db_connection.execute_query(sql_query)
                         
                         if result_df is not None:
@@ -1862,40 +1888,36 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                             
                             # Use explanation from o4-mini or generate if missing
                             if explanation:
-                                return 'data_query', explanation, None
+                                # Make explanation more specific with actual numbers
+                                if len(result_df) > 0 and "COUNT(*)" in sql_query.upper():
+                                    count_value = result_df.iloc[0, 0] if len(result_df.columns) > 0 else len(result_df)
+                                    enhanced_explanation = explanation.replace("sejumlah proyek", f"{count_value} proyek")
+                                    enhanced_explanation = enhanced_explanation.replace("terdapat jumlah total", f"terdapat {count_value}")
+                                    return 'data_query', enhanced_explanation, None
+                                else:
+                                    return 'data_query', explanation, None
                             else:
                                 # Generate explanation if missing
-                                explanation_prompt = f"""
-                                User asked: {user_question}
-                                SQL Query: {sql_query}
-                                Results: {len(result_df)} records found
+                                if "COUNT(*)" in sql_query.upper() and len(result_df) > 0:
+                                    count_value = result_df.iloc[0, 0]
+                                    generated_response = f"✅ Berdasarkan data yang ditemukan, terdapat {count_value} proyek yang memenuhi kriteria pencarian Anda."
+                                else:
+                                    generated_response = f"✅ Query berhasil dijalankan, ditemukan {len(result_df)} records."
                                 
-                                Provide clear Indonesian explanation with business insights.
-                                """
-                                
-                                explanation_response = self.client.responses.create(
-                                    model="o4-mini",
-                                    reasoning={"effort": "low"},
-                                    input=[
-                                        {"role": "system", "content": "You explain database results in clear Bahasa Indonesia with business insights."},
-                                        {"role": "user", "content": explanation_prompt}
-                                    ],
-                                    max_output_tokens=500
-                                )
-                                
-                                formatted_response = explanation_response.output_text if hasattr(explanation_response, 'output_text') else "Query berhasil dijalankan."
-                                return 'data_query', formatted_response, None
+                                return 'data_query', generated_response, None
                         else:
-                            return 'data_query', f"Query gagal dieksekusi: {query_msg}", None
+                            return 'data_query', f"❌ Query gagal dieksekusi: {query_msg}", None
                     else:
                         return 'data_query', explanation or "Tidak dapat memproses permintaan.", None
             
             return 'data_query', "Maaf, tidak dapat memproses permintaan. Silakan coba dengan pertanyaan yang lebih spesifik.", None
             
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            st.error(f"Error details: {error_details}")
             return 'data_query', f"Maaf, terjadi kesalahan: {str(e)}", None
 
-    
     def prepare_map_data(self, query_data: pd.DataFrame) -> pd.DataFrame:
         """Prepare and clean map data"""
         try:
