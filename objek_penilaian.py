@@ -1870,40 +1870,8 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
         
         return sql_query
 
-    def clean_and_validate_sql(self, sql_query: str) -> str:
-        """Clean and validate SQL query to remove markdown and fix syntax issues"""
-        
-        # Remove markdown code blocks
-        sql_query = re.sub(r'```sql\s*', '', sql_query, flags=re.IGNORECASE)
-        sql_query = re.sub(r'```\s*', '', sql_query)
-        sql_query = re.sub(r'`+', '', sql_query)  # Remove backticks
-        
-        # Remove multiple semicolons
-        sql_query = re.sub(r';\s*SELECT', '; -- SECOND QUERY REMOVED: SELECT', sql_query)
-        
-        # Fix table name issues
-        wrong_table_patterns = [
-            r'\bFROM\s+objek_penilaian\b(?!\w)',
-            r'\bfrom\s+objek_penilaian\b(?!\w)',
-            r'\bJOIN\s+objek_penilaian\b(?!\w)',
-            r'\bjoin\s+objek_penilaian\b(?!\w)'
-        ]
-        
-        for pattern in wrong_table_patterns:
-            sql_query = re.sub(pattern, f'FROM {self.table_name}', sql_query, flags=re.IGNORECASE)
-        
-        # Ensure single query execution
-        if sql_query.count(';') > 1:
-            first_query = sql_query.split(';')[0] + ';'
-            sql_query = first_query
-        
-        # Clean up whitespace and newlines
-        sql_query = ' '.join(sql_query.split())
-        
-        return sql_query.strip()
-
     def handle_data_query(self, user_question: str, geographic_context: str = ""):
-        """Handle data-related queries with validation for SQL syntax"""
+        """Handle data-related queries with visualization support"""
         try:
             # Check for reference queries first
             if hasattr(st.session_state, 'last_query_result'):
@@ -1926,7 +1894,7 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
             
             # Generate SQL query or function call
             ai_response = self.generate_query(user_question, geographic_context)
-            
+        
             if ai_response and hasattr(ai_response, 'output') and ai_response.output:
                 # Process function calls (maps, charts, nearby search)
                 for output_item in ai_response.output:
@@ -1939,9 +1907,7 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     sql_query = ai_response.output_text.strip()
                     
                     if sql_query and "SELECT" in sql_query.upper():
-                        # ENHANCED SQL CLEANING
-                        sql_query = self.clean_and_validate_sql(sql_query)
-                        
+                        sql_query = self.validate_and_fix_sql(sql_query)
                         result_df, query_msg = self.db_connection.execute_query(sql_query)
                         
                         if result_df is not None:
@@ -1963,7 +1929,6 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
             error_details = traceback.format_exc()
             st.error(f"Detailed error: {error_details}")
             return 'data_query', f"Maaf, terjadi kesalahan: {str(e)}", None
-
     
     def prepare_map_data(self, query_data: pd.DataFrame) -> pd.DataFrame:
         """Prepare and clean map data"""
