@@ -1826,6 +1826,8 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
             
             # Generate SQL query or function call
             ai_response = self.generate_query(user_question, geographic_context)
+            if hasattr(ai_response, 'output_text'):
+                st.write("DEBUG - AI Response:", ai_response.output_text)
             
             if ai_response and hasattr(ai_response, 'output') and ai_response.output:
                 # Process function calls (maps, charts, nearby search)
