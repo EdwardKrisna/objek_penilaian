@@ -1960,7 +1960,7 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                         result_df, query_msg = self.db_connection.execute_query(sql_query)
                         
                         if result_df is not None:
-                            with st.expander("📊 Query Results", expanded=False):
+                            with st.expander("📊 Query Results", expanded=True):
                                 st.code(sql_query, language="sql")
                                 st.dataframe(result_df, use_container_width=True)
                             
@@ -2045,7 +2045,7 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                                 'sql_query': sql_query
                             }
                             
-                            with st.expander("📊 Map Data & Query Details", expanded=False):
+                            with st.expander("📊 Map Data & Query Details", expanded=True):
                                 st.code(sql_query, language="sql")
                                 st.dataframe(result_df, use_container_width=True)
                             
@@ -2101,7 +2101,7 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                             'sql_query': sql_query
                         }
                         
-                        with st.expander("📊 Chart Data & Query Details", expanded=False):
+                        with st.expander("📊 Chart Data & Query Details", expanded=True):
                             st.code(sql_query, language="sql")
                             st.dataframe(result_df, use_container_width=True)
                         
@@ -2550,25 +2550,38 @@ Apa yang ingin Anda ketahui hari ini?"""
             "visualization": None
         })
         
+        # Display user message immediately
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        
         # Process assistant response
-        try:
-            geo_context = st.session_state.ai_chat.get_geographic_context_cached()
-            intent, final_response, viz_data = st.session_state.ai_chat.process_user_input(prompt, geo_context)
-            
-            # Add assistant response to history
-            st.session_state.chat_messages.append({
-                "role": "assistant",
-                "content": final_response,
-                "visualization": viz_data
-            })
-            
-        except Exception as e:
-            error_msg = f"Maaf, terjadi kesalahan: {str(e)}"
-            st.session_state.chat_messages.append({
-                "role": "assistant", 
-                "content": error_msg,
-                "visualization": None
-            })
+        with st.chat_message("assistant"):
+            try:
+                geo_context = st.session_state.ai_chat.get_geographic_context_cached()
+                intent, final_response, viz_data = st.session_state.ai_chat.process_user_input(prompt, geo_context)
+                
+                # Display response immediately
+                st.markdown(final_response)
+                
+                # Render visualization if present
+                if viz_data:
+                    render_stored_visualization_cached(viz_data, len(st.session_state.chat_messages))
+                
+                # Add assistant response to history
+                st.session_state.chat_messages.append({
+                    "role": "assistant",
+                    "content": final_response,
+                    "visualization": viz_data
+                })
+                
+            except Exception as e:
+                error_msg = f"Maaf, terjadi kesalahan: {str(e)}"
+                st.markdown(error_msg)
+                st.session_state.chat_messages.append({
+                    "role": "assistant", 
+                    "content": error_msg,
+                    "visualization": None
+                })
         
         # Force re-run to display new messages
         st.rerun()
