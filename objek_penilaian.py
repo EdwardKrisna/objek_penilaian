@@ -302,73 +302,6 @@ class RHRAIChat:
         if len(self.conversation_history) > 5:
             self.conversation_history = self.conversation_history[-5:]
     
-    def get_conversation_context_cached(self) -> str:
-        """Generate conversation context with caching"""
-        
-        # Create a cache key based on conversation history
-        if not self.conversation_history:
-            return ""
-        
-        # Use hash of recent history as cache key
-        recent_history = self.conversation_history[-3:]
-        cache_key = f"context_{hash(str(recent_history))}"
-        
-        # Check if we already generated this context
-        if cache_key in st.session_state:
-            return st.session_state[cache_key]
-        
-        # Generate context (existing logic)
-        context_parts = ["RECENT CONVERSATION CONTEXT:"]
-        
-        for entry in recent_history:
-            context_parts.append(f"User: {entry['user_input']}")
-            
-            if entry['has_data'] and entry['data_summary']:
-                summary = entry['data_summary']
-                context_parts.append(f"AI returned {summary['record_count']} records")
-                
-                if 'sample_values' in summary:
-                    if 'wadmpr' in summary['sample_values']:
-                        provinces = list(summary['sample_values']['wadmpr'].keys())
-                        context_parts.append(f"Locations: {', '.join(provinces[:2])}")
-                    if 'wadmkk' in summary['sample_values']:
-                        cities = list(summary['sample_values']['wadmkk'].keys())
-                        context_parts.append(f"Cities: {', '.join(cities[:2])}")
-        
-        context = "\n".join(context_parts)
-        
-        # Cache the result
-        st.session_state[cache_key] = context
-        
-        return context
-    
-    def get_geographic_context_cached(self):
-        """Generate geographic context with caching"""
-        if not hasattr(st.session_state, 'geographic_filters'):
-            return ""
-        
-        filters = st.session_state.geographic_filters
-        cache_key = f"geo_context_{hash(str(filters))}"
-        
-        if cache_key in st.session_state:
-            return st.session_state[cache_key]
-        
-        if not any(filters.values()):
-            st.session_state[cache_key] = ""
-            return ""
-        
-        context_parts = []
-        if filters.get('wadmpr'):
-            context_parts.append(f"Provinces: {filters['wadmpr']}")
-        if filters.get('wadmkk'):
-            context_parts.append(f"Regencies: {filters['wadmkk']}")
-        if filters.get('wadmkc'):
-            context_parts.append(f"Districts: {filters['wadmkc']}")
-        
-        geo_context = "Geographic context: " + " | ".join(context_parts)
-        st.session_state[cache_key] = geo_context
-        return geo_context
-
     def calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate the great circle distance between two points on Earth (in kilometers)"""
         lat1_rad = math.radians(lat1)
@@ -511,7 +444,7 @@ class RHRAIChat:
                 'reasoning': f"Casual conversation pattern detected"
             }
         
-        # Use GPT for unclear cases
+        # Use o4-mini for unclear cases
         system_prompt = """You are an intent classifier for RHR property appraisal assistant.
 
     Classify user messages into these categories:
@@ -543,17 +476,18 @@ class RHRAIChat:
     }"""
 
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-4.1-mini",
-                messages=[
+            response = self.client.responses.create(
+                model="o4-mini",
+                reasoning={"effort": "low"},
+                input=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_question}
                 ],
-                max_tokens=150,
+                max_output_tokens=150,
                 temperature=0.1
             )
             
-            result = json.loads(response.choices[0].message.content)
+            result = json.loads(response.output_text)
             return result
             
         except Exception as e:
@@ -563,7 +497,7 @@ class RHRAIChat:
                 "confidence": 0.5,
                 "reasoning": f"Classification failed, defaulting to data_query: {str(e)}"
             }
-    
+
     def handle_context_reference(self, user_question: str, context_type: str = None) -> tuple:
         """Handle references to previous results"""
         
@@ -892,152 +826,145 @@ Anda dapat melakukan filtering dengan mengatakan:
         return None
     
     def generate_query(self, user_question: str, geographic_context: str = "") -> str:
-    
+        """Generate SQL query and response using o4-mini only"""
+        
         # Get conversation context
-        conversation_context = self.get_conversation_context_cached()
+        conversation_context = ""
+        if self.conversation_history:
+            context_parts = ["RECENT CONVERSATION CONTEXT:"]
+            for entry in self.conversation_history[-3:]:
+                context_parts.append(f"User: {entry['user_input']}")
+                if entry['has_data'] and entry['data_summary']:
+                    summary = entry['data_summary']
+                    context_parts.append(f"AI returned {summary['record_count']} records")
+                    if 'sample_values' in summary:
+                        if 'wadmpr' in summary['sample_values']:
+                            provinces = list(summary['sample_values']['wadmpr'].keys())
+                            context_parts.append(f"Locations: {', '.join(provinces[:2])}")
+            conversation_context = "\n".join(context_parts)
         
-        # Enhanced system prompt with conversation context built-in
+        # Get geographic context
+        geo_context = ""
+        if hasattr(st.session_state, 'geographic_filters'):
+            filters = st.session_state.geographic_filters
+            if any(filters.values()):
+                context_parts = []
+                if filters.get('wadmpr'):
+                    context_parts.append(f"Provinces: {filters['wadmpr']}")
+                if filters.get('wadmkk'):
+                    context_parts.append(f"Regencies: {filters['wadmkk']}")
+                if filters.get('wadmkc'):
+                    context_parts.append(f"Districts: {filters['wadmkc']}")
+                geo_context = "Geographic context: " + " | ".join(context_parts)
+
+        # Enhanced system prompt with response formatting
         system_prompt = f"""
-    You are a strict SQL-only assistant for the RHR property appraisal database with CONVERSATION MEMORY.
+        You are a comprehensive SQL and business intelligence assistant for the RHR property appraisal database.
 
-    RECENT CONVERSATION CONTEXT:
-    {conversation_context}
+        {conversation_context}
 
-    CRITICAL MEMORY RULES:
-    1. If user asks for visualization of previous data (e.g., "buatkan petanya", "buatkan grafik"), use the SAME filters from the last query
-    2. If user says "tersebut", "itu", "tadi" - they're referring to the last result
-    3. When creating maps/charts of previous results, maintain the geographic or filter context
-    4. If last query was about "Bandung", and user asks "buatkan petanya", show map of Bandung projects only
-    5. ALWAYS look at the conversation context to understand what "petanya" or "grafiknya" refers to
+        {geo_context}
 
-    You have three helper functions:
+        You have three helper functions:
 
-    create_map_visualization(sql_query: string, title: string)
-        → Returns a map of properties when called.
-        
-    find_nearby_projects(location_name: string, radius_km: float, title: string)
-        → Finds and maps projects near a specific location within given radius.
-        
-    create_chart_visualization(chart_type: string, sql_query: string, title: string, x_column: string, color_column ,y_column: string: string)
-        → Creates various charts (bar, pie, line, scatter, histogram) from data.
+        create_map_visualization(sql_query: string, title: string)
+            → Returns a map of properties when called.
+            
+        find_nearby_projects(location_name: string, radius_km: float, title: string)
+            → Finds and maps projects near a specific location within given radius.
+            
+        create_chart_visualization(chart_type: string, sql_query: string, title: string, x_column: string, color_column ,y_column: string: string)
+            → Creates various charts (bar, pie, line, scatter, histogram) from data.
 
-    **RULES**  
-    - If the user asks for charts/graphs ("grafik", "chart", "barchart", "pie", etc.), use `create_chart_visualization` function. If user asks for charts/graphs of previous data, use the same WHERE conditions from conversation context.
-    - If the user asks for projects near a specific location, use `find_nearby_projects` function. If user asks for maps of previous data, use the same location filters from conversation context.
-    - If the user asks for a general map, use `create_map_visualization` function.  
-    - Otherwise return *only* a PostgreSQL query (no explanations).
+        TABLE: {self.table_name}
 
-    **CRITICAL: ALWAYS USE THE EXACT TABLE NAME: {self.table_name}**
-    **DO NOT use "objek_penilaian" or any other table name variations**
+        COLUMN INFORMATION:
 
-    TABLE: {self.table_name}
+        Project Information:
+        - sumber (text): Data source (e.g., "kontrak" = contract-based projects)
+        - pemberi_tugas (text): Client/Task giver (e.g., "PT Asuransi Jiwa IFG", "PT Perkebunan Nusantara II")
+        - no_kontrak (text): Contract number (e.g., "RHR00C1P0623111.0")
+        - nama_lokasi (text): Location name (e.g., "Lokasi 20", "Lokasi 3")
+        - alamat_lokasi (text): Address detail (e.g., "Jalan Kampung Melayu Kecil I No.89, RT 013 / RW 10)
+        - id (int8): Unique project identifier (e.g., 16316, 17122) - PRIMARY KEY
 
-    DETAILED COLUMN INFORMATION:
+        Property Information:
+        - objek_penilaian (text): Appraisal object type (e.g., "real properti")
+        - nama_objek (text): Object name (e.g., "Rumah", "Tanah Kosong")
+        - jenis_objek_text (text): Object type (e.g., "Hotel", "Aset Tak Berwujud")
+        - kepemilikan (text): Ownership type (e.g., "tunggal" = single ownership)
+        - keterangan (text): Additional notes (e.g., "Luas Tanah : 1.148", ect.)
 
-    Project Information:
-    - sumber (text): Data source (e.g., "kontrak" = contract-based projects)
-    - pemberi_tugas (text): Client/Task giver (e.g., "PT Asuransi Jiwa IFG", "PT Perkebunan Nusantara II")
-    - no_kontrak (text): Contract number (e.g., "RHR00C1P0623111.0")
-    - nama_lokasi (text): Location name (e.g., "Lokasi 20", "Lokasi 3")
-    - alamat_lokasi (text): Address detail (e.g., "Jalan Kampung Melayu Kecil I No.89, RT 013 / RW 10)
-    - id (int8): Unique project identifier (e.g., 16316, 17122) - PRIMARY KEY
+        Project Information:
+        - penilaian_ke (text): How many times the project taken (e.g., "1" = once , "2" = twice)
+        - penugasan_text (text): Project task type or 'Penugasan Penilaian' (e.g., "Penilaian Aset")
+        - tujuan_text (text): Project objective/purpose or 'Tujuan Penilaian' (e.g., "Penjaminan Hutang")
 
-    Property Information:
-    - objek_penilaian (text): Appraisal object type (e.g., "real properti")
-    - nama_objek (text): Object name (e.g., "Rumah", "Tanah Kosong")
-    - jenis_objek_text (text): Object type (e.g., "Hotel", "Aset Tak Berwujud")
-    - kepemilikan (text): Ownership type (e.g., "tunggal" = single ownership)
-    - keterangan (text): Additional notes (e.g., "Luas Tanah : 1.148", ect.)
+        Status & Management:
+        - status_text (text): Project status (e.g., "Inspeksi", "Penunjukan PIC")
+        - cabang_text (text): Cabang name (e.g., "Cabang Bali", "Cabang Jakarta")
+        - jc_text (text): Job captain or 'jc' (e.g., "IMW","FHM")
 
-    Project Information:
-    - penilaian_ke (text): How many times the project taken (e.g., "1" = once , "2" = twice)
-    - penugasan_text (text): Project task type or 'Penugasan Penilaian' (e.g., "Penilaian Aset")
-    - tujuan_text (text): Project objective/purpose or 'Tujuan Penilaian' (e.g., "Penjaminan Hutang")
+        Geographic Data:
+        - latitude (float8): Latitude coordinates (e.g., -6.236507782741299)
+        - longitude (float8): Longitude coordinates (e.g., 106.86356067983168)
+        - geometry (geometry): PostGIS geometry field (binary spatial data)
+        - wadmpr (text): Province (e.g., "DKI Jakarta", "Sumatera Utara")
+        - wadmkk (text): Regency/City (e.g., "Kota Administrasi Jakarta Selatan", "Deli Serdang")
+        - wadmkc (text): District (e.g., "Tebet", "Labuhan Deli")
 
-    Status & Management:
-    - status_text (text): Project status (e.g., "Inspeksi", "Penunjukan PIC")
-    - cabang_text (text): Cabang name (e.g., "Cabang Bali", "Cabang Jakarta")
-    - jc_text (text): Job captain or 'jc' (e.g., "IMW","FHM")
+        RESPONSE FORMAT RULES:
+        1. For function calls: Return function call only
+        2. For SQL queries: Return SQL followed by "---EXPLANATION---" then Indonesian explanation
+        3. For chat: Return "---CHAT---" followed by Indonesian response
 
-    Geographic Data:
-    - latitude (float8): Latitude coordinates (e.g., -6.236507782741299)
-    - longitude (float8): Longitude coordinates (e.g., 106.86356067983168)
-    - geometry (geometry): PostGIS geometry field (binary spatial data)
-    - wadmpr (text): Province (e.g., "DKI Jakarta", "Sumatera Utara")
-    - wadmkk (text): Regency/City (e.g., "Kota Administrasi Jakarta Selatan", "Deli Serdang")
-    - wadmkc (text): District (e.g., "Tebet", "Labuhan Deli")
+        SQL RULES:
+        - Always use {self.table_name} as table name
+        - Handle NULLs: WHERE column IS NOT NULL AND column != '' AND column != 'NULL'
+        - Include id column for reference
+        - Add LIMIT to prevent large results
+        - For maps: Include id, latitude, longitude, descriptive columns
+        - For charts: Use appropriate aggregation with COUNT(*), GROUP BY
 
-    CRITICAL SQL RULES:
-    1. For counting: SELECT COUNT(*) FROM {self.table_name} WHERE...
-    2. For samples: SELECT id, [columns] FROM {self.table_name} WHERE... ORDER BY id DESC LIMIT 5
-    3. For grouping: SELECT [column], COUNT(*) FROM {self.table_name} WHERE [column] IS NOT NULL AND [column] != '' AND [column] != 'NULL' GROUP BY [column] ORDER BY COUNT(*) DESC LIMIT 10
-    4. Handle NULLs ONLY for the specific column being queried/grouped, NOT for the entire row
-    5. For samples/details: Always include 'id' column so users can reference specific records later
-    6. When filtering: Filter only the target column, keep other columns even if they have NULLs
-    7. For numeric columns: Use "WHERE column IS NOT NULL AND column != 0" when 0 is not meaningful
-    8. For coordinates: Use "WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0"
-    9. Text search: Use "ILIKE '%text%'" for case-insensitive search with NULL handling
-    10. Geographic search: "(wadmpr ILIKE '%location%' OR wadmkk ILIKE '%location%' OR wadmkc ILIKE '%location%') AND wadmpr IS NOT NULL"
-    11. Always add LIMIT to prevent large result sets
-    12. For map visualization: ALWAYS include id, latitude, longitude, and descriptive columns with NULL filtering
-    13. Use direct column names (no JOINs needed as all data is in main table)
-    14. MANDATORY: Filter out NULL, empty strings, and 'NULL' text values in WHERE clauses
-    15. **ALWAYS USE TABLE NAME: {self.table_name} - NEVER use "objek_penilaian" or other names**
+        EXPLANATION RULES:
+        - Write in natural Bahasa Indonesia
+        - Provide business insights, not technical details
+        - For counts: mention specific numbers and context
+        - For lists: highlight key findings and patterns
+        - Include actionable insights when possible
 
-    CONTEXT AWARENESS RULES:
-    - Remember previous query results and their IDs for follow-up questions
-    - When user says "yang pertama" (first one), use the first ID from last result
-    - When user says "yang terakhir" (last one), use the last ID from last result
-    - When user asks about "client pertama" (first client), get all projects from first client in last result
-    - When user filters previous results (e.g., "yang di jakarta selatan"), apply filter to previous IDs
-    - For positional references, always use the ID from the corresponding position in last result
-    - For comparative references (biggest, smallest), find the appropriate record from last result
-    - For status filtering ("yang completed"), filter previous IDs by status
-    - For geographic filtering ("yang di jakarta selatan"), filter previous IDs by location
+        EXAMPLES:
 
-    CONVERSATION-AWARE EXAMPLES:
+        User: "berapa proyek di jakarta?"
+        Response: SELECT COUNT(*) FROM {self.table_name} WHERE (wadmpr ILIKE '%jakarta%' OR wadmkk ILIKE '%jakarta%') AND wadmpr IS NOT NULL;
+        ---EXPLANATION---
+        Berdasarkan data yang ditemukan, terdapat X proyek di wilayah Jakarta. Ini menunjukkan aktivitas penilaian yang cukup tinggi di ibu kota, mencerminkan dinamika pasar properti yang aktif di Jakarta.
 
-    Example:
-    User: "berapa proyek di bandung?"
-    AI: SELECT COUNT(*) FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%')
+        User: "halo"
+        Response: ---CHAT---
+        Halo! Saya siap membantu Anda dengan analisis data proyek RHR. Ada yang ingin Anda ketahui tentang data proyek, lokasi, atau klien hari ini?
 
-    User: "buatkan petanya"  
-    AI: create_map_visualization("SELECT id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') AND latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0", "Peta Proyek di Bandung")
+        User: "buatkan peta proyek di bandung"
+        Response: create_map_visualization("SELECT id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk FROM {self.table_name} WHERE (wadmpr ILIKE '%bandung%' OR wadmkk ILIKE '%bandung%') AND latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0", "Peta Proyek di Bandung")
 
-    User: "jelaskan pada proyek tersebut siapa saja pemberi tugasnya"
-    AI MUST generate:
-    SELECT pemberi_tugas, COUNT(*) AS jumlah_proyek 
-    FROM {self.table_name} 
-    WHERE (wadmpr ILIKE '%batam%' OR wadmkk ILIKE '%batam%') 
-    AND pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL'
-    GROUP BY pemberi_tugas 
-    ORDER BY jumlah_proyek DESC 
-    LIMIT 10
+        Generate response for: {user_question}"""
 
-    User: "buatkan dalam grafik" (referring to previous pemberi tugas data)
-    AI MUST generate:
-    create_chart_visualization("bar", "SELECT pemberi_tugas, COUNT(*) AS jumlah_proyek FROM {self.table_name} WHERE (wadmpr ILIKE '%batam%' OR wadmkk ILIKE '%batam%') AND pemberi_tugas IS NOT NULL AND pemberi_tugas != '' AND pemberi_tugas != 'NULL' GROUP BY pemberi_tugas ORDER BY jumlah_proyek DESC LIMIT 10", "Grafik Pemberi Tugas di Batam", "pemberi_tugas", "jumlah_proyek", "null")
-
-    Generate ONLY the PostgreSQL query or function call with proper context filters."""
-
-        # Check for chart/graph requests - more comprehensive detection
-        is_chart_request = bool(re.search(r"\b(grafik|chart|barchart|pie|line|scatter|histogram|graph|visualisasi data|buatkan grafik|dalam grafik)\b", user_question, re.I))
-        is_nearby_request = bool(re.search(r"\b(terdekat|sekitar|dekat|nearby|near|radius)\b", user_question, re.I))
-        is_map_request = bool(re.search(r"\b(map|peta|visualisasi lokasi|buatkan peta|petanya)\b", user_question, re.I))
+        # Determine tool usage
+        user_lower = user_question.lower()
+        is_chart_request = bool(re.search(r"\b(grafik|chart|barchart|pie|line|scatter|histogram|graph|visualisasi data|buatkan grafik|dalam grafik)\b", user_lower, re.I))
+        is_nearby_request = bool(re.search(r"\b(terdekat|sekitar|dekat|nearby|near|radius)\b", user_lower, re.I))
+        is_map_request = bool(re.search(r"\b(map|peta|visualisasi lokasi|buatkan peta|petanya)\b", user_lower, re.I))
 
         tools = [
             {
                 "type": "function",
                 "name": "create_map_visualization",
-                "description": "Create a map of properties. Use when the user requests general location visualization.",
+                "description": "Create a map of properties",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "sql_query": {
-                            "type": "string",
-                            "description": f"SQL query including id, latitude, longitude, nama_objek, pemberi_tugas, wadmpr, wadmkk FROM {self.table_name}"
-                        },
-                        "title": { "type": "string" }
+                        "sql_query": {"type": "string"},
+                        "title": {"type": "string"}
                     },
                     "required": ["sql_query", "title"],
                     "additionalProperties": False
@@ -1047,19 +974,13 @@ Anda dapat melakukan filtering dengan mengatakan:
             {
                 "type": "function",
                 "name": "find_nearby_projects",
-                "description": "Find and map projects near a specific location. Use when user asks for projects near a place.",
+                "description": "Find projects near a location",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "location_name": {
-                            "type": "string",
-                            "description": "Name of the location to search near (e.g., 'Setiabudi One', 'Mall Taman Anggrek')"
-                        },
-                        "radius_km": {
-                            "type": "number",
-                            "description": "Search radius in kilometers (default: 1.0)"
-                        },
-                        "title": { "type": "string" }
+                        "location_name": {"type": "string"},
+                        "radius_km": {"type": "number"},
+                        "title": {"type": "string"}
                     },
                     "required": ["location_name", "radius_km", "title"],
                     "additionalProperties": False
@@ -1069,32 +990,16 @@ Anda dapat melakukan filtering dengan mengatakan:
             {
                 "type": "function",
                 "name": "create_chart_visualization",
-                "description": "Create charts from data. Use when user requests graphs, charts, or data visualization.",
+                "description": "Create charts from data",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "chart_type": {
-                            "type": "string",
-                            "enum": ["bar", "pie", "line", "scatter", "histogram"],
-                            "description": "Type of chart to create"
-                        },
-                        "sql_query": {
-                            "type": "string",
-                            "description": f"SQL query to get data for the chart FROM {self.table_name}"
-                        },
-                        "title": { "type": "string" },
-                        "x_column": {
-                            "type": "string",
-                            "description": "Column name for x-axis - must be a column from the SQL result"
-                        },
-                        "y_column": {
-                            "type": "string", 
-                            "description": "Column name for y-axis - must be a column from the SQL result"
-                        },
-                        "color_column": {
-                            "type": "string",
-                            "description": "Column name for color grouping, or 'null' if no color grouping needed"
-                        }
+                        "chart_type": {"type": "string", "enum": ["bar", "pie", "line", "scatter", "histogram"]},
+                        "sql_query": {"type": "string"},
+                        "title": {"type": "string"},
+                        "x_column": {"type": "string"},
+                        "y_column": {"type": "string"},
+                        "color_column": {"type": "string"}
                     },
                     "required": ["chart_type", "sql_query", "title", "x_column", "y_column", "color_column"],
                     "additionalProperties": False
@@ -1103,19 +1008,7 @@ Anda dapat melakukan filtering dengan mengatakan:
             }
         ]
 
-        # Fixed message structure
-        messages = [
-            {"role": "system", "content": system_prompt}
-        ]
-        
-        # Add geographic context if available
-        if geographic_context:
-            messages.append({"role": "user", "content": f"Geographic Filter: {geographic_context}"})
-        
-        # Add the user question
-        messages.append({"role": "user", "content": user_question})
-
-        # Determine which function to use
+        # Determine tool choice
         tool_choice = "auto"
         if is_chart_request and not is_map_request:
             tool_choice = {"type": "function", "name": "create_chart_visualization"}
@@ -1127,7 +1020,10 @@ Anda dapat melakukan filtering dengan mengatakan:
         response = self.client.responses.create(
             model="o4-mini",
             reasoning={"effort": "low"},
-            input=messages,
+            input=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_question}
+            ],
             tools=tools,
             tool_choice=tool_choice,
             max_output_tokens=1000
@@ -1135,59 +1031,23 @@ Anda dapat melakukan filtering dengan mengatakan:
 
         return response
     
-    def format_response(self, user_question: str, query_results: pd.DataFrame, sql_query: str) -> str:
-        """Use GPT-4.1-mini to format response with controlled streaming"""
+    def parse_unified_response(self, response_text: str) -> tuple:
+        """Parse o4-mini response that contains both SQL and explanation"""
         try:
-            prompt = f"""User asked: {user_question}
-
-        SQL Query executed: {sql_query}
-        Results: {query_results.to_dict('records') if len(query_results) > 0 else 'No results found'}
-
-        Provide clear answer in Bahasa Indonesia. Focus on business insights, not technical details.
-        """
-
-            response = self.client.chat.completions.create(
-                model="gpt-4.1-mini",
-                stream=True,
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": "You interpret database results for business users. Always respond in Bahasa Indonesia with clear, actionable insights."
-                    },
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                max_tokens=2000,
-                temperature=0.3
-            )
-            
-            # Stream the response in the CURRENT chat context
-            # Only stream if we're in an active chat context
-            if hasattr(st.session_state, 'current_chat_active'):
-                full_response = ""
-                placeholder = st.empty()
-                
-                for chunk in response:
-                    if chunk.choices[0].delta.content:
-                        full_response += chunk.choices[0].delta.content
-                        placeholder.markdown(full_response + "▌")
-                
-                # Remove the cursor
-                placeholder.markdown(full_response)
-                return full_response
+            if "---EXPLANATION---" in response_text:
+                parts = response_text.split("---EXPLANATION---", 1)
+                sql_query = parts[0].strip()
+                explanation = parts[1].strip()
+                return sql_query, explanation, "data_query"
+            elif "---CHAT---" in response_text:
+                parts = response_text.split("---CHAT---", 1)
+                explanation = parts[1].strip()
+                return None, explanation, "chat"
             else:
-                # If not in active chat, just collect all chunks
-                full_response = ""
-                for chunk in response:
-                    if chunk.choices[0].delta.content:
-                        full_response += chunk.choices[0].delta.content
-                return full_response
-                
+                # Fallback: treat as SQL query
+                return response_text.strip(), None, "data_query"
         except Exception as e:
-            return f"Maaf, terjadi kesalahan dalam memproses hasil: {str(e)}"
-
+            return None, f"Error parsing response: {str(e)}", "error"
     
     def create_map_visualization(self, query_data: pd.DataFrame, title: str = "Property Locations") -> str:
         """Create map visualization from query data with persistence"""
@@ -1831,7 +1691,7 @@ Coba tanyakan sesuatu seperti:
 Apa yang ingin Anda ketahui tentang data proyek?"""
 
     def process_user_input(self, user_question: str, geographic_context: str = ""):
-        """Enhanced main method with visualization handling"""
+        """Enhanced main method with simplified flow"""
         
         # Step 1: Classify intent
         intent_result = self.classify_user_intent(user_question)
@@ -1918,7 +1778,7 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
         return sql_query.strip()
 
     def handle_data_query(self, user_question: str, geographic_context: str = ""):
-        """Handle data-related queries with validation for SQL syntax"""
+        """Handle data-related queries using o4-mini only"""
         try:
             # Check for reference queries first
             if hasattr(st.session_state, 'last_query_result'):
@@ -1930,11 +1790,36 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     result_df, query_msg = self.db_connection.execute_query(sql_query)
                     
                     if result_df is not None:
-                        with st.expander("📊 Detailed Record Information", expanded=True):
-                            st.code(sql_query, language="sql")
-                            st.dataframe(result_df, use_container_width=True)
+                        # Show query results if enabled
+                        if st.session_state.get('show_queries', True):
+                            with st.expander("📊 Query Results & Details", expanded=False):
+                                st.code(sql_query, language="sql")
+                                st.dataframe(result_df, use_container_width=True)
                         
-                        formatted_response = self.format_response(user_question, result_df, sql_query)
+                        # Generate explanation using o4-mini
+                        explanation_prompt = f"""
+                        User asked: {user_question}
+                        SQL Query: {sql_query}
+                        Results: {len(result_df)} records found
+                        
+                        Provide clear Indonesian explanation focusing on business insights.
+                        """
+                        
+                        explanation_response = self.client.responses.create(
+                            model="o4-mini",
+                            reasoning={"effort": "low"},
+                            input=[
+                                {"role": "system", "content": "You explain database results in clear Bahasa Indonesia with business insights."},
+                                {"role": "user", "content": explanation_prompt}
+                            ],
+                            max_output_tokens=500
+                        )
+                        
+                        formatted_response = explanation_response.output_text if hasattr(explanation_response, 'output_text') else "Query berhasil dijalankan."
+                        
+                        st.session_state.last_query_result = result_df
+                        st.session_state.last_sql_query = sql_query
+                        
                         return 'data_query', formatted_response, None
                     else:
                         return 'data_query', f"Error: {query_msg}", None
@@ -1951,33 +1836,63 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                 
                 # Process regular SQL queries
                 if hasattr(ai_response, 'output_text') and ai_response.output_text:
-                    sql_query = ai_response.output_text.strip()
+                    response_text = ai_response.output_text.strip()
                     
-                    if sql_query and "SELECT" in sql_query.upper():
-                        # ENHANCED SQL CLEANING
+                    # Parse the unified response
+                    sql_query, explanation, response_type = self.parse_unified_response(response_text)
+                    
+                    if response_type == "chat":
+                        return 'chat', explanation, None
+                    elif response_type == "data_query" and sql_query:
+                        # Clean and execute SQL
                         sql_query = self.clean_and_validate_sql(sql_query)
-                        
                         result_df, query_msg = self.db_connection.execute_query(sql_query)
                         
                         if result_df is not None:
-                            with st.expander("📊 Query Results", expanded=False):
-                                st.code(sql_query, language="sql")
-                                st.dataframe(result_df, use_container_width=True)
+                            # Show query results if enabled
+                            if st.session_state.get('show_queries', True):
+                                with st.expander("📊 Query Results & Details", expanded=False):
+                                    st.code(sql_query, language="sql")
+                                    st.dataframe(result_df, use_container_width=True)
                             
                             st.session_state.last_query_result = result_df
                             st.session_state.last_sql_query = sql_query
-                            formatted_response = self.format_response(user_question, result_df, sql_query)
-                            return 'data_query', formatted_response, None
+                            
+                            # Use explanation from o4-mini or generate if missing
+                            if explanation:
+                                return 'data_query', explanation, None
+                            else:
+                                # Generate explanation if missing
+                                explanation_prompt = f"""
+                                User asked: {user_question}
+                                SQL Query: {sql_query}
+                                Results: {len(result_df)} records found
+                                
+                                Provide clear Indonesian explanation with business insights.
+                                """
+                                
+                                explanation_response = self.client.responses.create(
+                                    model="o4-mini",
+                                    reasoning={"effort": "low"},
+                                    input=[
+                                        {"role": "system", "content": "You explain database results in clear Bahasa Indonesia with business insights."},
+                                        {"role": "user", "content": explanation_prompt}
+                                    ],
+                                    max_output_tokens=500
+                                )
+                                
+                                formatted_response = explanation_response.output_text if hasattr(explanation_response, 'output_text') else "Query berhasil dijalankan."
+                                return 'data_query', formatted_response, None
                         else:
                             return 'data_query', f"Query gagal dieksekusi: {query_msg}", None
+                    else:
+                        return 'data_query', explanation or "Tidak dapat memproses permintaan.", None
             
             return 'data_query', "Maaf, tidak dapat memproses permintaan. Silakan coba dengan pertanyaan yang lebih spesifik.", None
             
         except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            st.error(f"Detailed error: {error_details}")
             return 'data_query', f"Maaf, terjadi kesalahan: {str(e)}", None
+
     
     def prepare_map_data(self, query_data: pd.DataFrame) -> pd.DataFrame:
         """Prepare and clean map data"""
@@ -2016,7 +1931,7 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
             return None
 
     def handle_function_call(self, output_item):
-        """Handle function calls (maps, charts, nearby search)"""
+        """Handle function calls (maps, charts, nearby search) with query display"""
         try:
             if output_item.name == "create_map_visualization":
                 try:
@@ -2031,13 +1946,18 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     result_df, query_msg = self.db_connection.execute_query(sql_query)
                     
                     if result_df is not None and len(result_df) > 0:
+                        # Show query if enabled
+                        if st.session_state.get('show_queries', True):
+                            with st.expander("📊 Map Data & Query Details", expanded=False):
+                                st.code(sql_query, language="sql")
+                                st.dataframe(result_df, use_container_width=True)
+                        
                         # Prepare map data
                         map_df = self.prepare_map_data(result_df)
                         
                         if map_df is not None and len(map_df) > 0:
-                            # ENSURE this structure is EXACTLY like this
                             viz_data = {
-                                'type': 'map',  # This must be present
+                                'type': 'map',
                                 'map_data': map_df.to_dict('records'),
                                 'title': title,
                                 'center_lat': float(map_df['latitude'].mean()),
@@ -2045,16 +1965,10 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                                 'sql_query': sql_query
                             }
                             
-                            with st.expander("📊 Map Data & Query Details", expanded=False):
-                                st.code(sql_query, language="sql")
-                                st.dataframe(result_df, use_container_width=True)
-                            
                             st.session_state.last_query_result = result_df
                             st.session_state.last_sql_query = sql_query
                             
-                            response = f"""Saya telah membuat visualisasi peta untuk permintaan Anda.
-
-    ✅ Peta berhasil ditampilkan dengan {len(map_df)} properti.
+                            response = f"""✅ Peta berhasil ditampilkan dengan {len(map_df)} properti.
 
     Peta menampilkan lokasi properti berdasarkan data yang tersedia."""
                             
@@ -2069,7 +1983,6 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
             
             elif output_item.name == "create_chart_visualization":
                 try:
-                    # Similar fix for charts
                     args = json.loads(output_item.arguments)
                     chart_type = args.get("chart_type", "bar")
                     sql_query = args.get("sql_query")
@@ -2078,7 +1991,6 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     y_col = args.get("y_column") 
                     color_col = args.get("color_column")
                     
-                    # Convert "null" string to None
                     if color_col in ["null", "NULL", "", None]:
                         color_col = None
                     
@@ -2089,9 +2001,14 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     result_df, query_msg = self.db_connection.execute_query(sql_query)
                     
                     if result_df is not None and len(result_df) > 0:
-                        # ENSURE this structure is EXACTLY like this
+                        # Show query if enabled
+                        if st.session_state.get('show_queries', True):
+                            with st.expander("📊 Chart Data & Query Details", expanded=False):
+                                st.code(sql_query, language="sql")
+                                st.dataframe(result_df, use_container_width=True)
+                        
                         viz_data = {
-                            'type': 'chart',  # This must be present
+                            'type': 'chart',
                             'chart_data': result_df.to_dict('records'),
                             'chart_type': chart_type,
                             'title': chart_title,
@@ -2101,18 +2018,10 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                             'sql_query': sql_query
                         }
                         
-                        with st.expander("📊 Chart Data & Query Details", expanded=False):
-                            st.code(sql_query, language="sql")
-                            st.dataframe(result_df, use_container_width=True)
-                        
                         st.session_state.last_query_result = result_df
                         st.session_state.last_sql_query = sql_query
                         
-                        response = f"""Saya telah membuat visualisasi grafik untuk permintaan Anda.
-
-    ✅ Grafik {chart_type} berhasil ditampilkan dengan {len(result_df)} data points.
-
-    Grafik menampilkan data berdasarkan query yang dijalankan."""
+                        response = f"""✅ Grafik {chart_type} berhasil ditampilkan dengan {len(result_df)} data points."""
                         
                         return 'data_query', response, viz_data
                     else:
@@ -2124,7 +2033,6 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     return 'data_query', f"Error creating chart: {str(e)}", None
             
             elif output_item.name == "find_nearby_projects":
-                # REPLACE THE "pass" WITH THIS IMPLEMENTATION:
                 try:
                     args = json.loads(output_item.arguments)
                     location_name = args.get("location_name")
@@ -2134,13 +2042,10 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                     if not location_name:
                         return 'data_query', "Error: Nama lokasi tidak ditemukan untuk pencarian terdekat.", None
                     
-                    # Check if geocoding service is available
                     if not self.geocode_service:
                         return 'data_query', "Error: Layanan geocoding tidak tersedia. Silakan tambahkan Google Maps API key.", None
                     
-                    # Use the find_nearby_projects method
                     nearby_result = self.find_nearby_projects(location_name, radius_km, title, self.db_connection)
-                    
                     return 'data_query', nearby_result, None
                     
                 except json.JSONDecodeError as e:
@@ -2153,6 +2058,7 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                 
         except Exception as e:
             return 'data_query', f"Error executing function: {str(e)}", None
+
 
 def check_authentication():
     """Check if user is authenticated"""
@@ -2183,57 +2089,6 @@ def login():
                 st.error("Invalid username or password")
     
     return False
-
-@st.cache_resource
-def get_database_connection():
-    """Cached database connection to avoid re-initialization"""
-    db_connection = DatabaseConnection()
-    
-    try:
-        db_user = st.secrets["database"]["user"]
-        db_pass = st.secrets["database"]["password"]
-        db_host = st.secrets["database"]["host"]
-        db_port = st.secrets["database"]["port"]
-        db_name = st.secrets["database"]["name"]
-        schema = st.secrets["database"]["schema"]
-        
-        success, message = db_connection.connect(
-            db_user, db_pass, db_host, db_port, db_name, schema
-        )
-        
-        if success:
-            return db_connection
-        else:
-            st.error(f"Database connection failed: {message}")
-            return None
-            
-    except KeyError as e:
-        st.error(f"Missing database configuration: {e}")
-        return None
-
-@st.cache_resource
-def get_ai_chat_client():
-    """Cached AI chat client to avoid re-initialization"""
-    try:
-        api_key = st.secrets["openai"]["api_key"]
-        table_name = st.secrets["database"]["table_name"]
-        
-        # Get database connection
-        db_connection = get_database_connection()
-        if not db_connection:
-            return None
-        
-        # Initialize geocoding service
-        try:
-            google_api_key = st.secrets["google"]["api_key"]
-            geocode_service = GeocodeService(google_api_key)
-        except KeyError:
-            geocode_service = None
-        
-        return RHRAIChat(api_key, table_name, db_connection, geocode_service)
-    except KeyError as e:
-        st.error(f"Configuration missing: {e}")
-        return None
 
 def render_stored_visualization_cached(viz_data: dict, message_index: int):
     """Render visualization with caching and better error handling"""
@@ -2494,24 +2349,49 @@ def render_geographic_filter():
 
 
 def render_ai_chat():
-    """Fixed chat interface without double output"""
+    """Simplified chat interface"""
     st.markdown('<div class="section-header">AI Chat</div>', unsafe_allow_html=True)
     
-    # Use cached database connection
-    db_connection = get_database_connection()
-    if not db_connection:
-        st.error("Database connection failed")
-        return
+    # Simple database connection
+    if 'db_connection' not in st.session_state:
+        st.session_state.db_connection = DatabaseConnection()
+        try:
+            db_user = st.secrets["database"]["user"]
+            db_pass = st.secrets["database"]["password"]
+            db_host = st.secrets["database"]["host"]
+            db_port = st.secrets["database"]["port"]
+            db_name = st.secrets["database"]["name"]
+            schema = st.secrets["database"]["schema"]
+            
+            success, message = st.session_state.db_connection.connect(
+                db_user, db_pass, db_host, db_port, db_name, schema
+            )
+            
+            if not success:
+                st.error(f"Database connection failed: {message}")
+                return
+                
+        except KeyError as e:
+            st.error(f"Missing database configuration: {e}")
+            return
     
-    st.session_state.db_connection = db_connection
-    
-    # Use cached AI client
+    # Simple AI client initialization
     if 'ai_chat' not in st.session_state:
-        st.session_state.ai_chat = get_ai_chat_client()
-    
-    if not st.session_state.ai_chat:
-        st.error("AI client initialization failed")
-        return
+        try:
+            api_key = st.secrets["openai"]["api_key"]
+            table_name = st.secrets["database"]["table_name"]
+            
+            # Initialize geocoding service
+            try:
+                google_api_key = st.secrets["google"]["api_key"]
+                geocode_service = GeocodeService(google_api_key)
+            except KeyError:
+                geocode_service = None
+            
+            st.session_state.ai_chat = RHRAIChat(api_key, table_name, st.session_state.db_connection, geocode_service)
+        except KeyError as e:
+            st.error(f"Configuration missing: {e}")
+            return
     
     # Initialize chat messages (only once)
     if 'chat_messages' not in st.session_state:
@@ -2532,7 +2412,7 @@ Apa yang ingin Anda ketahui hari ini?"""
             "visualization": None
         })
     
-    # Display ALL existing chat messages (including any just added)
+    # Display existing chat messages
     for i, message in enumerate(st.session_state.chat_messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
@@ -2552,8 +2432,7 @@ Apa yang ingin Anda ketahui hari ini?"""
         
         # Process assistant response
         try:
-            geo_context = st.session_state.ai_chat.get_geographic_context_cached()
-            intent, final_response, viz_data = st.session_state.ai_chat.process_user_input(prompt, geo_context)
+            intent, final_response, viz_data = st.session_state.ai_chat.process_user_input(prompt)
             
             # Add assistant response to history
             st.session_state.chat_messages.append({
@@ -2580,9 +2459,6 @@ Apa yang ingin Anda ketahui hari ini?"""
     with col1:
         if st.button("Clear Chat", use_container_width=True):
             st.session_state.chat_messages = []
-            keys_to_delete = [key for key in st.session_state.keys() if key.startswith("rendered_")]
-            for key in keys_to_delete:
-                del st.session_state[key]
             if 'last_query_result' in st.session_state:
                 del st.session_state.last_query_result
             if 'last_map_data' in st.session_state:
@@ -2595,15 +2471,6 @@ Apa yang ingin Anda ketahui hari ini?"""
                 del st.session_state.last_query_result
             if 'last_map_data' in st.session_state:
                 del st.session_state.last_map_data
-            
-            keys_to_delete = [key for key in st.session_state.keys() if key.startswith("context_")]
-            for key in keys_to_delete:
-                del st.session_state[key]
-            
-            geo_keys_to_delete = [key for key in st.session_state.keys() if key.startswith("geo_context_")]
-            for key in geo_keys_to_delete:
-                del st.session_state[key]
-            
             st.success("Context cleared!")
     
     with col3:
@@ -2650,6 +2517,12 @@ def main():
         st.session_state.authenticated = False
         st.rerun()
     
+    # Display Options
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**Display Options**")
+    show_queries = st.sidebar.checkbox("Show SQL Queries", value=True, key="show_sql_queries")
+    st.session_state.show_queries = show_queries
+    
     # Render selected page
     if page == "Geographic Filter":
         render_geographic_filter()
@@ -2660,11 +2533,33 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("**System Status**")
     
-    db_connection = get_database_connection()
-    if db_connection and db_connection.connection_status:
-        st.sidebar.success("Database Connected")
+    # Simple database connection check
+    if 'db_connection' not in st.session_state:
+        st.session_state.db_connection = DatabaseConnection()
+        try:
+            db_user = st.secrets["database"]["user"]
+            db_pass = st.secrets["database"]["password"]
+            db_host = st.secrets["database"]["host"]
+            db_port = st.secrets["database"]["port"]
+            db_name = st.secrets["database"]["name"]
+            schema = st.secrets["database"]["schema"]
+            
+            success, message = st.session_state.db_connection.connect(
+                db_user, db_pass, db_host, db_port, db_name, schema
+            )
+            
+            if success:
+                st.sidebar.success("Database Connected")
+            else:
+                st.sidebar.error("Database Disconnected")
+                
+        except KeyError as e:
+            st.sidebar.error(f"Missing database config: {e}")
     else:
-        st.sidebar.error("Database Disconnected")
+        if st.session_state.db_connection.connection_status:
+            st.sidebar.success("Database Connected")
+        else:
+            st.sidebar.error("Database Disconnected")
     
     # Geocoding service status
     try:
