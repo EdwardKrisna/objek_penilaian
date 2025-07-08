@@ -2074,6 +2074,31 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
                 except Exception as e:
                     return 'data_query', f"Error creating chart: {str(e)}", None
             
+            elif output_item.name == "find_nearby_projects":
+                # REPLACE THE "pass" WITH THIS IMPLEMENTATION:
+                try:
+                    args = json.loads(output_item.arguments)
+                    location_name = args.get("location_name")
+                    radius_km = args.get("radius_km", 1.0)
+                    title = args.get("title", f"Proyek Terdekat dari {location_name}")
+                    
+                    if not location_name:
+                        return 'data_query', "Error: Nama lokasi tidak ditemukan untuk pencarian terdekat.", None
+                    
+                    # Check if geocoding service is available
+                    if not self.geocode_service:
+                        return 'data_query', "Error: Layanan geocoding tidak tersedia. Silakan tambahkan Google Maps API key.", None
+                    
+                    # Use the find_nearby_projects method
+                    nearby_result = self.find_nearby_projects(location_name, radius_km, title, self.db_connection)
+                    
+                    return 'data_query', nearby_result, None
+                    
+                except json.JSONDecodeError as e:
+                    return 'data_query', f"Error parsing nearby search parameters: {str(e)}", None
+                except Exception as e:
+                    return 'data_query', f"Error finding nearby projects: {str(e)}", None
+            
             else:
                 return 'data_query', f"Unknown function call: {output_item.name}", None
                 
