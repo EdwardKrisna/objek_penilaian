@@ -1894,12 +1894,12 @@ Apa yang ingin Anda ketahui tentang data proyek?"""
             
             # Generate SQL query or function call
             ai_response = self.generate_query(user_question, geographic_context)
-            
+        
             if ai_response and hasattr(ai_response, 'output') and ai_response.output:
                 # Process function calls (maps, charts, nearby search)
                 for output_item in ai_response.output:
                     if hasattr(output_item, 'type') and output_item.type == "function_call":
-                        result_type, response, viz_data = self.handle_function_call(output_item, user_question)
+                        result_type, response, viz_data = self.handle_function_call(output_item)
                         return result_type, response, viz_data
                 
                 # Process regular SQL queries
