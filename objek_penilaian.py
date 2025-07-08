@@ -263,17 +263,14 @@ class ConversationContextManager:
 class RHRAIChat:
     """Enhanced AI chatbot with domain-focused conversation and context management"""
     
-    def __init__(self, api_key: str, table_name: str, geocode_service: GeocodeService = None):
+    def __init__(self, api_key: str, table_name: str, db_connection, geocode_service: GeocodeService = None):
         self.client = OpenAI(api_key=api_key)
         self.table_name = table_name
+        self.db_connection = db_connection  # Store as instance variable
         self.geocode_service = geocode_service
         self.context_manager = ConversationContextManager()
         self.conversation_history = []
         self.last_query_context = None
-        
-        # Initialize visualization storage in session state
-        if 'visualizations' not in st.session_state:
-            st.session_state.visualizations = []
     
     def add_to_conversation_memory(self, user_input: str, ai_response: str, query_result: pd.DataFrame = None, sql_query: str = None):
         """Add exchange to conversation memory"""
@@ -1768,7 +1765,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                 )
                 if reference_query:
                     sql_query = self.validate_and_fix_sql(reference_query)
-                    result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+                    result_df, query_msg = self.db_connection.execute_query(sql_query)
                     
                     if result_df is not None:
                         with st.expander("📊 Detailed Record Information", expanded=True):
@@ -1796,7 +1793,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                     
                     if sql_query and "SELECT" in sql_query.upper():
                         sql_query = self.validate_and_fix_sql(sql_query)
-                        result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+                        result_df, query_msg = self.db_connection.execute_query(sql_query)
                         
                         if result_df is not None:
                             with st.expander("📊 Query Results", expanded=False):
@@ -1867,7 +1864,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                         return 'data_query', "Error: SQL query tidak ditemukan untuk visualisasi peta.", None
                     
                     # Execute SQL query first
-                    result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+                    result_df, query_msg = self.db_connection.execute_query(sql_query)
                     
                     if result_df is not None and len(result_df) > 0:
                         # Prepare map data
@@ -1925,7 +1922,7 @@ Provide clear answer in Bahasa Indonesia. Focus on business insights, not techni
                         return 'data_query', "Error: SQL query tidak ditemukan untuk visualisasi chart.", None
                     
                     # Execute SQL query
-                    result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
+                    result_df, query_msg = self.db_connection.execute_query(sql_query)
                     
                     if result_df is not None and len(result_df) > 0:
                         # Store chart data for rendering
@@ -2035,6 +2032,11 @@ def get_ai_chat_client():
         api_key = st.secrets["openai"]["api_key"]
         table_name = st.secrets["database"]["table_name"]
         
+        # Get database connection
+        db_connection = get_database_connection()
+        if not db_connection:
+            return None
+        
         # Initialize geocoding service
         try:
             google_api_key = st.secrets["google"]["api_key"]
@@ -2042,7 +2044,7 @@ def get_ai_chat_client():
         except KeyError:
             geocode_service = None
         
-        return RHRAIChat(api_key, table_name, geocode_service)
+        return RHRAIChat(api_key, table_name, db_connection, geocode_service)
     except KeyError as e:
         st.error(f"Configuration missing: {e}")
         return None
@@ -2265,17 +2267,7 @@ def render_ai_chat():
     """Optimized chat interface with better performance"""
     st.markdown('<div class="section-header">AI Chat</div>', unsafe_allow_html=True)
     
-    # Use cached database connection
-    db_connection = get_database_connection()
-    if not db_connection:
-        st.error("Database connection failed")
-        return
-    
-    if not st.session_state.db_connection:
-        st.error("Database connection failed")
-        return
-    
-    # Use cached AI client
+    # Use cached AI client (which includes database connection)
     if 'ai_chat' not in st.session_state:
         st.session_state.ai_chat = get_ai_chat_client()
     
