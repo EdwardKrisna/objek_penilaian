@@ -1097,7 +1097,7 @@ Anda dapat melakukan filtering dengan mengatakan:
             input=messages,
             tools=tools,
             tool_choice=tool_choice,
-            max_output_tokens=500
+            max_output_tokens=1000
         )
 
         return response
