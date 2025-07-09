@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 
 # Set page config
 st.set_page_config(
-    page_title="RHR AI Assistant",
+    page_title="RHR AI Agent",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -561,7 +561,7 @@ def initialize_main_agent():
 - For grouping: ORDER BY COUNT(*) DESC LIMIT 10
 
 **RESPONSE STYLE:**
-- Always respond in friendly Bahasa Indonesia
+- Always respond in friendly user language (automatically detect user language by their input prompt)
 - Provide business insights, not just technical data
 - Use tools appropriately for the request type
 - Handle follow-up questions using conversation context
@@ -712,7 +712,7 @@ Use context appropriately for follow-up questions."""
 
 def render_ai_chat():
     """Render the streamlined AI chat interface"""
-    st.markdown('<div class="section-header">RHR AI Assistant (Powered by o4-mini)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">RHR AI Agent </div>', unsafe_allow_html=True)
     
     if not initialize_database():
         return
@@ -727,7 +727,7 @@ def render_ai_chat():
     # Agent status display
     st.markdown("""
     <div class="agent-status">
-        🤖 Single o4-mini Agent Active - Handling All Tasks
+        🤖 KJPP RHR FIRST AI AGENT - Handling All Tasks
     </div>
     """, unsafe_allow_html=True)
     
@@ -737,7 +737,7 @@ def render_ai_chat():
         welcome_msg = """Halo! Saya asisten AI RHR yang diperkuat oleh **o4-mini** 🚀
 
 **Kemampuan Saya:**
-- 💬 **Percakapan Natural**: Berbicara dalam Bahasa Indonesia yang ramah
+- 💬 **Percakapan Natural**: Saya berbicara dalam bahasa yang anda gunakan!
 - 📊 **Analisis Data**: "Berapa proyek di Jakarta?" • "Siapa client terbesar?"
 - 🗺️ **Visualisasi Peta**: "Buatkan peta semua proyek di Bali"
 - 📈 **Grafik & Chart**: "Grafik pemberi tugas per cabang"
@@ -902,7 +902,7 @@ def render_examples():
 
 def main():
     """Main application"""
-    st.markdown('<h1 class="main-header">🚀 RHR AI Assistant (o4-mini Powered)</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🚀 RHR AI Agent </h1>', unsafe_allow_html=True)
     
     # Check authentication
     if not check_authentication():
@@ -910,7 +910,7 @@ def main():
         return
     
     # Sidebar navigation
-    st.sidebar.title("🤖 RHR AI Assistant")
+    st.sidebar.title("🤖 RHR AI Agent")
     st.sidebar.success(f"Logged in as: {st.secrets['auth']['username']}")
     
     if st.sidebar.button("Logout"):
