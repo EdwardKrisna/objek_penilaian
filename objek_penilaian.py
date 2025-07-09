@@ -740,7 +740,7 @@ Use context appropriately for follow-up questions."""
 
 def render_ai_chat():
     """Render the streamlined AI chat interface"""
-    st.markdown('<div class="section-header">RHR AI Agent </div>', unsafe_allow_html=True)
+    # st.markdown('<div class="section-header">RHR AI Agent </div>', unsafe_allow_html=True)
     
     if not initialize_database():
         return
@@ -865,7 +865,7 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
 
     # Chat controls
     st.markdown("---")
-    col1, col3, col4 = st.columns(3)
+    col1, col3, col3 = st.columns(3)
     
     with col1:
         if st.button("🗑️ Clear Chat", use_container_width=True):
