@@ -578,7 +578,9 @@ def initialize_main_agent():
 - "Buatkan peta" → Use create_map_visualization with appropriate query
 - "Grafik pemberi tugas" → Use create_chart_visualization with bar chart
 - "Proyek terdekat dari Senayan" → Use find_nearby_projects
-- "Yang pertama" → Reference first item from last query result""",
+- "Yang pertama" → Reference first item from last query result
+
+You can ONLY asnwer questions in this scope of field!""",
         model="o4-mini",  # Single model handles everything
         tools=[
             execute_sql_query,
@@ -958,13 +960,6 @@ def main():
         st.sidebar.success("🌍 Geocoding Available")
     except KeyError:
         st.sidebar.warning("⚠️ Geocoding Unavailable")
-    
-    # Agent status
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("**🤖 AI Agent Info**")
-    st.sidebar.info("**Model**: o4-mini (Unified)")
-    st.sidebar.info("**Capabilities**: Chat + SQL + Maps + Charts")
-    st.sidebar.info("**Language**: Bahasa Indonesia")
     
     # Chat status
     if hasattr(st.session_state, 'chat_messages'):
