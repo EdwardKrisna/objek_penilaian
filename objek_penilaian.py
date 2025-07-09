@@ -817,43 +817,61 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
 
     # Handle new user input LAST
     if prompt := st.chat_input("Tanya tentang data properti Anda..."):
-        # Add user message to history
-        st.session_state.chat_messages.append({"role": "user", "content": prompt, "visualization": None})
+        # Add user message to history IMMEDIATELY
+        st.session_state.chat_messages.append({
+            "role": "user", 
+            "content": prompt, 
+            "visualization": None
+        })
+        
+        # Set a flag to process response on next run
+        st.session_state.pending_response = prompt
+        
+        # Refresh immediately to show user input at bottom
+        st.rerun()
+
+    # Process pending response if exists
+    if hasattr(st.session_state, 'pending_response') and st.session_state.pending_response:
+        prompt = st.session_state.pending_response
+        
+        # Clear the pending flag
+        del st.session_state.pending_response
         
         # Clear any previous visualization
         if 'last_visualization' in st.session_state:
             del st.session_state.last_visualization
         
         # Process assistant response
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            response = loop.run_until_complete(
-                process_user_query(prompt, main_agent)
-            )
-            
-            loop.close()
-            
-            # Check if a visualization was created
-            viz_data = st.session_state.get('last_visualization', None)
-            
-            # Add to chat history with visualization
-            st.session_state.chat_messages.append({
-                "role": "assistant",
-                "content": response,
-                "visualization": viz_data
-            })
-            
-        except Exception as e:
-            error_msg = f"Error: {str(e)}"
-            st.session_state.chat_messages.append({
-                "role": "assistant",
-                "content": error_msg,
-                "visualization": None
-            })
+        with st.spinner("🤖 Processing..."):
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                response = loop.run_until_complete(
+                    process_user_query(prompt, main_agent)
+                )
+                
+                loop.close()
+                
+                # Check if a visualization was created
+                viz_data = st.session_state.get('last_visualization', None)
+                
+                # Add to chat history with visualization
+                st.session_state.chat_messages.append({
+                    "role": "assistant",
+                    "content": response,
+                    "visualization": viz_data
+                })
+                
+            except Exception as e:
+                error_msg = f"Error: {str(e)}"
+                st.session_state.chat_messages.append({
+                    "role": "assistant",
+                    "content": error_msg,
+                    "visualization": None
+                })
         
-        # Refresh the page to show new messages
+        # Refresh again to show response
         st.rerun()
     
     if st.button("📊 Show Last Data", use_container_width=True):
