@@ -856,9 +856,16 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
         # Refresh the page to show new messages
         st.rerun()
     
+    if st.button("📊 Show Last Data", use_container_width=True):
+            if hasattr(st.session_state, 'last_query_result') and st.session_state.last_query_result is not None:
+                with st.expander("Last Query Results", expanded=True):
+                    st.dataframe(st.session_state.last_query_result, use_container_width=True)
+            else:
+                st.info("No previous query results available")
+
     # Chat controls
     st.markdown("---")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col3, col4 = st.columns(3)
     
     with col1:
         if st.button("🗑️ Clear Chat", use_container_width=True):
@@ -870,14 +877,6 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
             st.rerun()
     
     with col2:
-        if st.button("📊 Show Last Data", use_container_width=True):
-            if hasattr(st.session_state, 'last_query_result') and st.session_state.last_query_result is not None:
-                with st.expander("Last Query Results", expanded=True):
-                    st.dataframe(st.session_state.last_query_result, use_container_width=True)
-            else:
-                st.info("No previous query results available")
-    
-    with col3:
         if st.button("🔄 Reset Context", use_container_width=True):
             if 'last_query_result' in st.session_state:
                 del st.session_state.last_query_result
@@ -885,7 +884,7 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
                 del st.session_state.last_map_data
             st.success("Context cleared!")
     
-    with col4:
+    with col3:
         if st.button("💾 Export Chat", use_container_width=True):
             chat_export = {
                 "timestamp": datetime.now().isoformat(),
