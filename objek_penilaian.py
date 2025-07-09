@@ -271,6 +271,13 @@ def create_map_visualization(sql_query: str, title: str = "Property Locations") 
             title=title
         )
         
+        # Store the figure in session state for persistence
+        st.session_state.last_visualization = {
+            "type": "map",
+            "figure": fig,
+            "title": title
+        }
+
         # Display map
         st.plotly_chart(fig, use_container_width=True)
         
@@ -338,6 +345,15 @@ def create_chart_visualization(chart_type: str, sql_query: str, title: str,
                 title_x=0.5,
                 margin=dict(l=50, r=50, t=80, b=100)
             )
+        
+        if fig:
+            # Store the figure in session state for persistence
+            st.session_state.last_visualization = {
+                "type": "chart",
+                "figure": fig,
+                "chart_type": chart_type,
+                "title": title
+            }
             
             # Display chart
             st.plotly_chart(fig, use_container_width=True)
@@ -468,9 +484,19 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
                 title=title
             )
             
+            # Store the figure in session state for persistence
+            st.session_state.last_visualization = {
+                "type": "nearby_map",
+                "figure": fig,
+                "title": title,
+                "location": location_name,
+                "radius": radius_km,
+                "count": len(result_df)
+            }
+
             # Display map
             st.plotly_chart(fig, use_container_width=True)
-            
+
             # Store for future reference
             st.session_state.last_query_result = result_df.copy()
             st.session_state.last_map_data = result_df.copy()
@@ -561,7 +587,7 @@ def initialize_main_agent():
 - For grouping: ORDER BY COUNT(*) DESC LIMIT 10
 
 **RESPONSE STYLE:**
-- Always respond in friendly user language (automatically detect user language by their input prompt)
+- Always respond in user language , automatically detect user language based by their input prompt.
 - Provide business insights, not just technical data
 - Use tools appropriately for the request type
 - Handle follow-up questions using conversation context
@@ -772,42 +798,63 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
         st.info("🤖 Agent Ready!")
     
     # Display ALL existing chat messages FIRST
-    for message in st.session_state.chat_messages:
+    for i, message in enumerate(st.session_state.chat_messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            
+            # Redisplay visualization if present
+            if message.get("visualization"):
+                viz = message["visualization"]
+                if viz["type"] in ["map", "nearby_map"]:
+                    st.plotly_chart(viz["figure"], use_container_width=True)
+                    
+                    # Show additional info for nearby maps
+                    if viz["type"] == "nearby_map":
+                        st.caption(f"📍 {viz['location']} • Radius: {viz['radius']} km • Found: {viz['count']} projects")
+                        
+                elif viz["type"] == "chart":
+                    st.plotly_chart(viz["figure"], use_container_width=True)
 
     # Handle new user input LAST
     if prompt := st.chat_input("Tanya tentang data properti Anda..."):
         # Add user message to history
-        st.session_state.chat_messages.append({"role": "user", "content": prompt})
+        st.session_state.chat_messages.append({"role": "user", "content": prompt, "visualization": None})
+        
+        # Clear any previous visualization
+        if 'last_visualization' in st.session_state:
+            del st.session_state.last_visualization
         
         # Process assistant response
-        with st.chat_message("assistant"):
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                response = loop.run_until_complete(
-                    process_user_query(prompt, main_agent)
-                )
-                
-                loop.close()
-                
-                # Add to chat history
-                st.session_state.chat_messages.append({
-                    "role": "assistant",
-                    "content": response
-                })
-                
-            except Exception as e:
-                error_msg = f"Error: {str(e)}"
-                st.error(error_msg)
-                st.session_state.chat_messages.append({
-                    "role": "assistant",
-                    "content": error_msg
-                })
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             
-            st.rerun()
+            response = loop.run_until_complete(
+                process_user_query(prompt, main_agent)
+            )
+            
+            loop.close()
+            
+            # Check if a visualization was created
+            viz_data = st.session_state.get('last_visualization', None)
+            
+            # Add to chat history with visualization
+            st.session_state.chat_messages.append({
+                "role": "assistant",
+                "content": response,
+                "visualization": viz_data
+            })
+            
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            st.session_state.chat_messages.append({
+                "role": "assistant",
+                "content": error_msg,
+                "visualization": None
+            })
+        
+        # Refresh the page to show new messages
+        st.rerun()
     
     # Chat controls
     st.markdown("---")
