@@ -771,6 +771,42 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
     with col3:
         st.info("🤖 Agent Ready!")
     
+    # Display ALL existing chat messages FIRST
+    for message in st.session_state.chat_messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Handle new user input LAST
+    if prompt := st.chat_input("Tanya tentang data properti Anda..."):
+        # Add user message to history
+        st.session_state.chat_messages.append({"role": "user", "content": prompt})
+        
+        # Process assistant response
+        with st.chat_message("assistant"):
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                response = loop.run_until_complete(
+                    process_user_query(prompt, main_agent)
+                )
+                
+                loop.close()
+                
+                # Add to chat history
+                st.session_state.chat_messages.append({
+                    "role": "assistant",
+                    "content": response
+                })
+                
+            except Exception as e:
+                error_msg = f"Error: {str(e)}"
+                st.error(error_msg)
+                st.session_state.chat_messages.append({
+                    "role": "assistant",
+                    "content": error_msg
+                })
+    
     # Chat controls
     st.markdown("---")
     col1, col2, col3, col4 = st.columns(4)
@@ -815,47 +851,6 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
                 mime="application/json",
                 use_container_width=True
             )
-            
-    # Display chat history
-    for message in st.session_state.chat_messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-    
-    # Chat input
-    if prompt := st.chat_input("Tanya tentang data properti Anda..."):
-        # Add user message
-        st.session_state.chat_messages.append({"role": "user", "content": prompt})
-        
-        # Display user message
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        
-        # Generate AI response using single o4-mini agent
-        with st.chat_message("assistant"):
-            try:
-                # Create event loop for async processing
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                response = loop.run_until_complete(
-                    process_user_query(prompt, main_agent)
-                )
-                
-                loop.close()
-                
-                # Add to chat history
-                st.session_state.chat_messages.append({
-                    "role": "assistant",
-                    "content": response
-                })
-                
-            except Exception as e:
-                error_msg = f"Error: {str(e)}"
-                st.error(error_msg)
-                st.session_state.chat_messages.append({
-                    "role": "assistant",
-                    "content": error_msg
-                })
 
 def render_examples():
     """Render example queries to help users"""
