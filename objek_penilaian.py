@@ -1029,5 +1029,65 @@ def main():
     if hasattr(st.session_state, 'chat_messages'):
         st.sidebar.info(f"💬 Messages: {len(st.session_state.chat_messages)}")
 
+# Run this script to identify which import is failing
+import sys
+
+try:
+    import streamlit as st
+    print("✅ Streamlit imported successfully")
+except ImportError as e:
+    print(f"❌ Streamlit import failed: {e}")
+
+try:
+    import pandas as pd
+    print("✅ Pandas imported successfully")
+except ImportError as e:
+    print(f"❌ Pandas import failed: {e}")
+
+try:
+    from sqlalchemy import create_engine, text
+    print("✅ SQLAlchemy imported successfully")
+except ImportError as e:
+    print(f"❌ SQLAlchemy import failed: {e}")
+
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    print("✅ Plotly imported successfully")
+except ImportError as e:
+    print(f"❌ Plotly import failed: {e}")
+
+try:
+    import requests
+    print("✅ Requests imported successfully")
+except ImportError as e:
+    print(f"❌ Requests import failed: {e}")
+
+try:
+    from agents import Agent, function_tool, Runner, set_default_openai_key
+    print("✅ Agents library imported successfully")
+except ImportError as e:
+    print(f"❌ Agents import failed: {e}")
+    print("Try installing: pip install openai-agents")
+
+try:
+    from openai.types.responses import ResponseTextDeltaEvent
+    print("✅ OpenAI types imported successfully")
+except ImportError as e:
+    print(f"❌ OpenAI types import failed: {e}")
+
+print(f"\nPython version: {sys.version}")
+print("Installed packages:")
+try:
+    import pkg_resources
+    installed_packages = [d.project_name for d in pkg_resources.working_set]
+    for package in ['streamlit', 'pandas', 'sqlalchemy', 'plotly', 'openai', 'agents', 'openai-agents']:
+        if package in installed_packages:
+            print(f"✅ {package}")
+        else:
+            print(f"❌ {package} - NOT INSTALLED")
+except:
+    print("Could not check installed packages")
+    
 if __name__ == "__main__":
     main()
