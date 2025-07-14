@@ -766,7 +766,7 @@ def render_ai_chat():
 
 **Kemampuan Saya:**
 - 💬 **Percakapan Natural**: Saya berbicara dalam bahasa yang anda gunakan!
-- 📊 **Analisis Data**: "Berapa proyek di Jakarta?" • "Siapa client terbesar?"
+- 📊 **Analisis Data**: "Berapa proyek di Jakarta?" ,"Siapa client terbesar?"
 - 🗺️ **Visualisasi Peta**: "Buatkan peta semua proyek di Bali"
 - 📈 **Grafik & Chart**: "Grafik pemberi tugas per cabang"
 - 📍 **Pencarian Lokasi**: "Proyek terdekat dari Mall Taman Anggrek radius 1km"
