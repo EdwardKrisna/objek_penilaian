@@ -16,13 +16,13 @@ from openai.types.responses import ResponseTextDeltaEvent
 
 warnings.filterwarnings('ignore')
 
-# # Set page config
-# st.set_page_config(
-#     page_title="RHR AI Agent",
-#     page_icon=None,
-#     layout="wide",
-#     initial_sidebar_state="expanded"
-# )
+# Set page config
+st.set_page_config(
+    page_title="RHR AI Agent",
+    page_icon=None,
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # Custom CSS
 st.markdown("""
@@ -1019,8 +1019,8 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
             )
 
 def main():
-    """Main application"""
-    st.markdown('<h1 class="main-header"> RHR AI Agent </h1>', unsafe_allow_html=True)
+    # """Main application"""
+    # st.markdown('<h1 class="main-header"> RHR AI Agent </h1>', unsafe_allow_html=True)
     
     # Check authentication
     if not check_authentication():
