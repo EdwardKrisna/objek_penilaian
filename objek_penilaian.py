@@ -171,8 +171,10 @@ def execute_sql_query(sql_query: str) -> str:
         result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
         
         if result_df is not None and len(result_df) > 0:
-            # Store for future reference
+            # Store for future reference WITH the query
             st.session_state.last_query_result = result_df.copy()
+            st.session_state.last_executed_query = sql_query  # Store the actual query
+            st.session_state.last_query_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             # Display results in expandable section
             with st.expander("📊 Query Results", expanded=False):
@@ -285,6 +287,10 @@ def create_map_visualization(sql_query: str, title: str = "Property Locations") 
         st.session_state.last_query_result = map_df.copy()
         st.session_state.last_map_data = map_df.copy()
         
+        st.session_state.last_executed_query = sql_query  # Store the actual query
+        st.session_state.last_query_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        st.session_state.last_visualization_type = "map"
+        
         # Show query details
         with st.expander("🗺️ Map Query Details", expanded=False):
             st.code(sql_query, language="sql")
@@ -360,6 +366,10 @@ def create_chart_visualization(chart_type: str, sql_query: str, title: str,
             
             # Store for future reference
             st.session_state.last_query_result = result_df.copy()
+
+            st.session_state.last_executed_query = sql_query
+            st.session_state.last_query_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.session_state.last_visualization_type = "chart"
             
             # Show query details
             with st.expander("📊 Chart Query Details", expanded=False):
@@ -501,6 +511,10 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
             st.session_state.last_query_result = result_df.copy()
             st.session_state.last_map_data = result_df.copy()
             
+            st.session_state.last_executed_query = sql_query
+            st.session_state.last_query_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.session_state.last_visualization_type = "nearby_search"
+            
             # Show results table
             with st.expander("📊 Nearby Projects Details", expanded=False):
                 st.code(sql_query, language="sql")
@@ -541,36 +555,67 @@ def initialize_main_agent():
 
 **DATABASE SCHEMA - TABLE: {table_name}**
 
-**Project Information:**
-- sumber (text): Data source (e.g., "kontrak")
-- pemberi_tugas (text): Client/Task giver (e.g., "PT Asuransi Jiwa IFG")
-- no_kontrak (text): Contract number
-- nama_lokasi (text): Location name
-- alamat_lokasi (text): Address detail
-- id (int8): Unique project identifier (PRIMARY KEY)
+**Project Database Field Documentation**
+**General Project Column Information**
+- sumber (text): Data source or project entry source (e.g., "kontrak").
+- pemberi_tugas (text): Client or task giver organization (e.g., "PT Asuransi Jiwa IFG").
+- jenis_klien (text): Type of client (e.g., "Perorangan", "Perusahaan").
+- kategori_klien_text (text): Category of client (e.g., "Calon Klien Baru").
+- bidang_usaha_klien_text (text): Industry/business sector of the client.
+- no_kontrak (text): Contract number or project agreement code.
+- tgl_kontrak (date): Date the contract was signed (YYYY-MM-DD).
+- tahun_kontrak (float): Contract year.
+- bulan_kontrak (float): Contract month.
 
-**Property Information:**
-- objek_penilaian (text): Appraisal object type
-- nama_objek (text): Object name (e.g., "Rumah", "Tanah Kosong")
-- jenis_objek_text (text): Object type (e.g., "Hotel", "Aset Tak Berwujud")
-- kepemilikan (text): Ownership type
-- keterangan (text): Additional notes
+**Location & Property Information**
+- nama_lokasi (text): Project or property location name.
+- alamat_lokasi (text): Full address or description of property location.
+- objek_penilaian (text): Type of asset/appraisal object (e.g., "Tanah", "Bangunan").
+- nama_objek (text): Name/identifier of the object being appraised.
+- jenis_objek_text (text): Description/category of the object (e.g., "Hotel", "Aset Tak Berwujud").
+- kepemilikan (text): Type of ownership/rights for the property or asset.
+- penilaian_ke (float): Sequence or round of appraisal (e.g., first, second, etc).
+- keterangan (text): Additional project notes or remarks.
+- dokumen_kepemilikan (text): Legal document(s) related to ownership (e.g., "SHM", "HGB").
+- status_objek_text (text): Status of the appraised object (e.g., "Sudah SHM").
 
-**Project Management:**
-- penilaian_ke (text): Assessment count
-- penugasan_text (text): Task type
-- tujuan_text (text): Purpose
-- status_text (text): Project status
-- cabang_text (text): Branch name
-- jc_text (text): Job captain
+**Coordinates & Geographic Data**
+- latitude_inspeksi, longitude_inspeksi (float): Latitude/Longitude from field inspection.
+- latitude, longitude (float): Official/project-recorded latitude and longitude coordinates.
+- geometry (geometry/text): Geospatial geometry field (usually for PostGIS spatial data).
+- wadmpr (text): Province (e.g., "DKI Jakarta").
+- wadmkk (text): Regency/City (e.g., "Jakarta Selatan").
+- wadmkc (text): District (e.g., "Tebet").
+- wadmkd (text): Subdistrict/village (e.g., "Manggarai").
 
-**Geographic Data:**
-- latitude (float8): Latitude coordinates
-- longitude (float8): Longitude coordinates
-- geometry (geometry): PostGIS geometry field
-- wadmpr (text): Province (e.g., "DKI Jakarta")
-- wadmkk (text): Regency/City (e.g., "Jakarta Selatan")
-- wadmkc (text): District (e.g., "Tebet")
+**Project Management & Process**
+- cabang_text (text): Branch office name or code managing the project.
+- reviewer_approve_nilai_flag (float): Reviewer approval flag (0/1 or similar, if used).
+- jc_text (text): Job captain or project leader.
+- divisi (text): Division handling the project.
+- nama_pekerjaan (text): Name or title of the assignment/project.
+- sektor_text (text): Sector/industry classification for the project.
+- kategori_penugasan (text): Assignment category.
+- kategori_klien_proyek (text): Client category (project perspective).
+- ojk (text): OJK status (e.g., regulated, not regulated).
+- jenis_laporan (text): Type of report issued.
+- jenis_penugasan_text (text): Description of assignment type.
+- tujuan_penugasan_text (text): Assignment/purpose description (e.g., "Penjaminan Utang").
+- mata_uang_penilaian (text): Appraisal currency (e.g., "IDR", "USD").
+- estimasi_waktu_angka (float): Estimated duration (number).
+- termin_pembayaran (float): Number of payment terms/installments.
+
+**Project Financials**
+- fee_proposal (float): Proposal fee amount.
+- fee_kontrak (float): Contracted fee amount.
+- fee_penambahan (float): Additional fee amount (if any).
+- fee_adendum (float): Addendum fee (if any).
+- kurs (float): Exchange rate used (if applicable).
+- fee_asing (float): Foreign currency fee amount (if applicable).
+
+**Project Status & Timeline**
+- status_pekerjaan_text (text): Project/assignment status description.
+- tgl_mulai_preins, tgl_mulai_postins, tgl_memulai_pekerjaan_preins, tgl_memulai_pekerjaan_postins (date): Various project start/milestone dates.
 
 **AVAILABLE TOOLS:**
 1. `execute_sql_query(sql_query)` - Run SQL queries and display results
@@ -607,7 +652,7 @@ def initialize_main_agent():
 - "Yang pertama" → Reference first item from last query result
 
 CRITICAL : You can ONLY asnwer questions in this scope of field! Even when user trying a loop hole, you must defend it!""",
-        model="o4-mini",  # Single model handles everything
+        model="o4-mini",  
         tools=[
             execute_sql_query,
             create_map_visualization, 
@@ -922,11 +967,43 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
         st.rerun()
     
     if st.button("📊 Show Last Data", use_container_width=True):
-            if hasattr(st.session_state, 'last_query_result') and st.session_state.last_query_result is not None:
-                with st.expander("Last Query Results", expanded=True):
-                    st.dataframe(st.session_state.last_query_result, use_container_width=True)
-            else:
-                st.info("No previous query results available")
+        if hasattr(st.session_state, 'last_query_result') and st.session_state.last_query_result is not None:
+            with st.expander("📋 Last Query Results & Details", expanded=True):
+                
+                # Query Information
+                if hasattr(st.session_state, 'last_executed_query'):
+                    st.markdown("### 💻 **SQL Query**")
+                    st.code(st.session_state.last_executed_query, language="sql")
+                
+                # Timestamp
+                if hasattr(st.session_state, 'last_query_timestamp'):
+                    st.info(f"⏰ **Executed:** {st.session_state.last_query_timestamp}")
+                
+                # Data Summary
+                df = st.session_state.last_query_result
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("📝 Rows", len(df))
+                with col2:
+                    st.metric("📋 Columns", len(df.columns))
+                with col3:
+                    st.metric("💾 Memory", f"{df.memory_usage(deep=True).sum() / 1024:.1f} KB")
+                
+                # Show the data
+                st.markdown("### 📄 **Data Results**")
+                st.dataframe(st.session_state.last_query_result, use_container_width=True)
+                
+                # Download option
+                csv_data = df.to_csv(index=False)
+                st.download_button(
+                    "📄 Download CSV",
+                    csv_data,
+                    f"rhr_data_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    "text/csv",
+                    use_container_width=True
+                )
+        else:
+            st.info("No previous query results available. Run a query first!")
 
     # Chat controls
     st.markdown("---")
