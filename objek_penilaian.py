@@ -19,7 +19,7 @@ warnings.filterwarnings('ignore')
 # Set page config
 st.set_page_config(
     page_title="RHR AI Agent",
-    page_icon="🤖",
+    page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -762,7 +762,7 @@ def render_ai_chat():
     # Initialize chat history
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
-        welcome_msg = """Halo! Saya RHR AI Agent ! 🚀
+        welcome_msg = """Halo! Saya RHR AI Agent !
 
 **Kemampuan Saya:**
 - 💬 **Percakapan Natural**: Saya berbicara dalam bahasa yang anda gunakan!
@@ -902,7 +902,7 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
 
 def main():
     """Main application"""
-    st.markdown('<h1 class="main-header">🚀 RHR AI Agent </h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header"> RHR AI Agent </h1>', unsafe_allow_html=True)
     
     # Check authentication
     if not check_authentication():
