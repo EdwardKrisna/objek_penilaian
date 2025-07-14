@@ -1037,20 +1037,20 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
 def main():
     """Main application with proper login handling"""
     
-    # Check authentication FIRST
-    if not check_authentication():
-        # Clear everything and show only login
-        st.markdown("""
-        <style>
-            .main .block-container {
-                padding-top: 0;
-                padding-bottom: 0;
-                max-width: 100%;
-            }
-        </style>
-        """, unsafe_allow_html=True)
-        login()
-        return
+    # # Check authentication FIRST
+    # if not check_authentication():
+    #     # Clear everything and show only login
+    #     st.markdown("""
+    #     <style>
+    #         .main .block-container {
+    #             padding-top: 0;
+    #             padding-bottom: 0;
+    #             max-width: 100%;
+    #         }
+    #     </style>
+    #     """, unsafe_allow_html=True)
+    login()
+    # return
     
     # Only show main app after authentication
     st.markdown('<h1 class="main-header">🚀 RHR AI Agent </h1>', unsafe_allow_html=True)
