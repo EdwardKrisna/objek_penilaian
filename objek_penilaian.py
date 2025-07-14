@@ -779,24 +779,6 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
             "content": welcome_msg
         })
     
-    # Status indicators
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.session_state.db_connection.connection_status:
-            st.success("✅ Database Connected")
-        else:
-            st.error("❌ Database Disconnected")
-    
-    with col2:
-        if geocode_service:
-            st.success("✅ Location Service Active")
-        else:
-            st.warning("⚠️ Location Service Inactive")
-    
-    with col3:
-        st.info("🤖 Agent Ready!")
-    
     # Display ALL existing chat messages FIRST
     for i, message in enumerate(st.session_state.chat_messages):
         with st.chat_message(message["role"]):
