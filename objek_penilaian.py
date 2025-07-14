@@ -623,115 +623,61 @@ def check_authentication():
     return st.session_state.get('authenticated', False)
 
 def login():
-    """Handle user login with elegant minimal design - Full screen overlay"""
+    """Simple elegant login that definitely works"""
     
-    # Hide the main app header and other elements
+    # Clean CSS without full-screen overlays
     st.markdown("""
     <style>
-        /* Hide Streamlit header only */
-        header[data-testid="stHeader"] {
-            display: none;
-        }
-        
-        /* Ensure form elements are visible */
-        .stTextInput, .stButton, .stForm {
-            display: block !important;
-            visibility: visible !important;
-        }
-        
         .login-container {
             max-width: 400px;
-            margin: 0 auto;
-            padding: 2rem;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.2);
+            margin: 3rem auto;
+            padding: 2.5rem;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border: 1px solid #e1e8ed;
         }
         
-        .login-header {
+        .login-title {
             text-align: center;
             color: #2c3e50;
             font-size: 1.8rem;
+            margin-bottom: 0.5rem;
             font-weight: 600;
-            margin-bottom: 1.5rem;
         }
         
         .login-subtitle {
             text-align: center;
             color: #7f8c8d;
-            font-size: 0.9rem;
             margin-bottom: 2rem;
+            font-size: 0.9rem;
         }
         
-        /* Custom input styling */
-        .stTextInput > div > div > input {
-            background: #f8f9fa !important;
-            border: 1px solid #e9ecef !important;
-            border-radius: 12px !important;
-            color: #2c3e50 !important;
-            padding: 12px 16px !important;
-            font-size: 14px !important;
-            width: 100% !important;
+        .stTextInput input {
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            padding: 12px;
         }
         
-        .stTextInput > div > div > input::placeholder {
-            color: #adb5bd !important;
+        .stButton button {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            font-weight: 600;
+            width: 100%;
+            margin-top: 1rem;
         }
         
-        .stTextInput > div > div > input:focus {
-            border: 2px solid #667eea !important;
-            box-shadow: 0 0 20px rgba(102, 126, 234, 0.1) !important;
-            outline: none !important;
-        }
-        
-        /* Custom button styling */
-        .stButton > button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-            border: none !important;
-            border-radius: 12px !important;
-            color: white !important;
-            font-weight: 600 !important;
-            padding: 12px 32px !important;
-            width: 100% !important;
-            transition: all 0.3s ease !important;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3) !important;
-        }
-        
-        .stButton > button:hover {
-            transform: translateY(-2px) !important;
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4) !important;
-        }
-        
-        /* Show form elements */
-        .stForm > div {
-            background: transparent !important;
-            border: none !important;
-            padding: 0 !important;
-        }
-        
-        /* Center the login container */
-        .login-wrapper {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            z-index: 9999;
-        }
-        
-        /* Hide main content when login is active */
-        .main-content-hidden {
-            display: none;
+        .stButton button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
     </style>
     """, unsafe_allow_html=True)
     
+    # Get credentials
     try:
         valid_username = st.secrets["auth"]["username"]
         valid_password = st.secrets["auth"]["password"]
@@ -739,46 +685,31 @@ def login():
         st.error("Authentication credentials not found in secrets.toml")
         return False
     
-    # Create centered login container
-    st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
+    # Create the login box
+    st.markdown("""
+    <div class="login-container">
+        <div class="login-title">🤖 RHR AI Agent</div>
+        <div class="login-subtitle">Please login to continue</div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Single column layout for better control
-    with st.container():
-        st.markdown("""
-        <div class="login-container">
-            <div class="login-header">🤖 RHR AI Agent</div>
-            <div class="login-subtitle">Secure Login Required</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Login form with custom styling
-        with st.form("login_form", clear_on_submit=False):
+    # Center the form
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        # Simple form
+        with st.form("login_form"):
+            username = st.text_input("👤 Username", placeholder="Enter username")
+            password = st.text_input("🔒 Password", type="password", placeholder="Enter password")
             
-            username = st.text_input(
-                "Username", 
-                placeholder="Enter your username",
-                key="login_username"
-            )
-            
-            password = st.text_input(
-                "Password", 
-                type="password",
-                placeholder="Enter your password",
-                key="login_password"
-            )
-            
-            submit_button = st.form_submit_button("🚀 Login")
-            
-            if submit_button:
+            if st.form_submit_button("🚀 Login"):
                 if username == valid_username and password == valid_password:
                     st.session_state.authenticated = True
                     st.success("✅ Login successful!")
-                    st.balloons()  # Add celebration effect
+                    st.balloons()
                     st.rerun()
                 else:
                     st.error("❌ Invalid credentials")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
     
     return False
 
@@ -1035,20 +966,11 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
             )
 
 def main():
-    """Main application with proper login handling"""
+    """Main application with clean login handling"""
     
-    # Check authentication FIRST
+    # Check authentication FIRST - no fancy CSS here
     if not check_authentication():
-        # Clear everything and show only login
-        st.markdown("""
-        <style>
-            .main .block-container {
-                padding-top: 0;
-                padding-bottom: 0;
-                max-width: 100%;
-            }
-        </style>
-        """, unsafe_allow_html=True)
+        # Just call login, no CSS modifications
         login()
         return
     
@@ -1062,8 +984,25 @@ def main():
     if st.sidebar.button("Logout"):
         st.session_state.authenticated = False
         st.rerun()
+
+    # Handle example query injection
+    if hasattr(st.session_state, 'example_query'):
+        st.info(f"Running example: {st.session_state.example_query}")
+        # Add to chat messages
+        if 'chat_messages' not in st.session_state:
+            st.session_state.chat_messages = []
+        
+        st.session_state.chat_messages.append({
+            "role": "user", 
+            "content": st.session_state.example_query
+        })
+        
+        # Clear the example query
+        del st.session_state.example_query
+        st.rerun()
     
     render_ai_chat()
+    
     
     # Sidebar system status
     st.sidebar.markdown("---")
