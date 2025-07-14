@@ -1025,69 +1025,77 @@ def main():
     except KeyError:
         st.sidebar.warning("⚠️ Geocoding Unavailable")
     
+    # OpenAI API status
+    try:
+        openai_api_key = st.secrets["openai"]["api_key"]
+        st.sidebar.success("🤖 OpenAI API Available")
+    except KeyError:
+        st.sidebar.error("❌ OpenAI API Key Missing")
+    
+    # Agents library status
+    try:
+        from agents import Agent, function_tool, Runner, set_default_openai_key
+        st.sidebar.success("🔧 Agents Library Available")
+    except ImportError:
+        st.sidebar.error("❌ Agents Library Missing")
+        st.sidebar.caption("Install: pip install openai-agents")
+    
+    # Required dependencies check
+    dependencies_status = {}
+    required_libs = {
+        'streamlit': 'Streamlit',
+        'pandas': 'Pandas', 
+        'sqlalchemy': 'SQLAlchemy',
+        'plotly': 'Plotly',
+        'requests': 'Requests',
+        'psycopg2': 'PostgreSQL Driver'
+    }
+    
+    all_deps_ok = True
+    for lib, name in required_libs.items():
+        try:
+            __import__(lib)
+            dependencies_status[name] = True
+        except ImportError:
+            dependencies_status[name] = False
+            all_deps_ok = False
+    
+    if all_deps_ok:
+        st.sidebar.success("📦 All Dependencies OK")
+    else:
+        st.sidebar.error("❌ Missing Dependencies")
+        with st.sidebar.expander("Dependency Details"):
+            for dep, status in dependencies_status.items():
+                if status:
+                    st.success(f"✅ {dep}")
+                else:
+                    st.error(f"❌ {dep}")
+    
+    # Chat status
+    if hasattr(st.session_state, 'chat_messages'):
+        st.sidebar.info(f"💬 Messages: {len(st.session_state.chat_messages)}")
+    
+    # System health summary
+    health_items = [
+        hasattr(st.session_state, 'db_connection') and st.session_state.db_connection.connection_status,
+        'google' in st.secrets and 'api_key' in st.secrets['google'],
+        'openai' in st.secrets and 'api_key' in st.secrets['openai'],
+        all_deps_ok
+    ]
+    
+    health_score = sum(health_items) / len(health_items) * 100
+    
+    if health_score == 100:
+        st.sidebar.success(f"💚 System Health: {health_score:.0f}%")
+    elif health_score >= 75:
+        st.sidebar.warning(f"🟡 System Health: {health_score:.0f}%")
+    else:
+        st.sidebar.error(f"🔴 System Health: {health_score:.0f}%")
+    
     # Chat status
     if hasattr(st.session_state, 'chat_messages'):
         st.sidebar.info(f"💬 Messages: {len(st.session_state.chat_messages)}")
 
-# Run this script to identify which import is failing
-import sys
 
-try:
-    import streamlit as st
-    print("✅ Streamlit imported successfully")
-except ImportError as e:
-    print(f"❌ Streamlit import failed: {e}")
-
-try:
-    import pandas as pd
-    print("✅ Pandas imported successfully")
-except ImportError as e:
-    print(f"❌ Pandas import failed: {e}")
-
-try:
-    from sqlalchemy import create_engine, text
-    print("✅ SQLAlchemy imported successfully")
-except ImportError as e:
-    print(f"❌ SQLAlchemy import failed: {e}")
-
-try:
-    import plotly.graph_objects as go
-    import plotly.express as px
-    print("✅ Plotly imported successfully")
-except ImportError as e:
-    print(f"❌ Plotly import failed: {e}")
-
-try:
-    import requests
-    print("✅ Requests imported successfully")
-except ImportError as e:
-    print(f"❌ Requests import failed: {e}")
-
-try:
-    from agents import Agent, function_tool, Runner, set_default_openai_key
-    print("✅ Agents library imported successfully")
-except ImportError as e:
-    print(f"❌ Agents import failed: {e}")
-    print("Try installing: pip install openai-agents")
-
-try:
-    from openai.types.responses import ResponseTextDeltaEvent
-    print("✅ OpenAI types imported successfully")
-except ImportError as e:
-    print(f"❌ OpenAI types import failed: {e}")
-
-print(f"\nPython version: {sys.version}")
-print("Installed packages:")
-try:
-    import pkg_resources
-    installed_packages = [d.project_name for d in pkg_resources.working_set]
-    for package in ['streamlit', 'pandas', 'sqlalchemy', 'plotly', 'openai', 'agents', 'openai-agents']:
-        if package in installed_packages:
-            print(f"✅ {package}")
-        else:
-            print(f"❌ {package} - NOT INSTALLED")
-except:
-    print("Could not check installed packages")
-    
 if __name__ == "__main__":
     main()
