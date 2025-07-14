@@ -623,8 +623,92 @@ def check_authentication():
     return st.session_state.get('authenticated', False)
 
 def login():
-    """Handle user login"""
-    st.markdown('<div class="section-header">Login</div>', unsafe_allow_html=True)
+    """Handle user login with elegant minimal design"""
+    
+    # Enhanced CSS for elegant login
+    st.markdown("""
+    <style>
+        .login-container {
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .login-header {
+            text-align: center;
+            color: white;
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .login-subtitle {
+            text-align: center;
+            color: rgba(255,255,255,0.8);
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+        }
+        
+        /* Custom input styling */
+        .stTextInput > div > div > input {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 12px;
+            color: white;
+            padding: 12px 16px;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .stTextInput > div > div > input::placeholder {
+            color: rgba(255,255,255,0.6);
+        }
+        
+        .stTextInput > div > div > input:focus {
+            border: 2px solid rgba(255,255,255,0.4);
+            box-shadow: 0 0 20px rgba(255,255,255,0.1);
+        }
+        
+        /* Custom button styling */
+        .stButton > button {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-weight: 600;
+            padding: 12px 32px;
+            width: 100%;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(238, 90, 82, 0.3);
+        }
+        
+        .stButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(238, 90, 82, 0.4);
+        }
+        
+        /* Hide streamlit form styling */
+        .stForm {
+            background: transparent;
+            border: none;
+        }
+        
+        /* Center the login container */
+        .login-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 60vh;
+            padding: 2rem 0;
+        }
+    </style>
+    """, unsafe_allow_html=True)
     
     try:
         valid_username = st.secrets["auth"]["username"]
@@ -633,18 +717,52 @@ def login():
         st.error("Authentication credentials not found in secrets.toml")
         return False
     
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submit_button = st.form_submit_button("Login")
+    # Create centered login container
+    st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown("""
+        <div class="login-container">
+            <div class="login-header">🤖 RHR AI Agent</div>
+            <div class="login-subtitle">Secure Login Required</div>
+        </div>
+        """, unsafe_allow_html=True)
         
-        if submit_button:
-            if username == valid_username and password == valid_password:
-                st.session_state.authenticated = True
-                st.success("Login successful!")
-                st.rerun()
-            else:
-                st.error("Invalid username or password")
+        # Login form with custom styling
+        with st.form("login_form", clear_on_submit=False):
+            st.markdown('<div style="margin-top: -2rem;">', unsafe_allow_html=True)
+            
+            username = st.text_input(
+                "Username", 
+                placeholder="Enter your username",
+                label_visibility="collapsed"
+            )
+            
+            password = st.text_input(
+                "Password", 
+                type="password",
+                placeholder="Enter your password",
+                label_visibility="collapsed"
+            )
+            
+            st.markdown('<div style="margin: 1.5rem 0 0.5rem 0;">', unsafe_allow_html=True)
+            submit_button = st.form_submit_button("🚀 Login", use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            if submit_button:
+                if username == valid_username and password == valid_password:
+                    st.session_state.authenticated = True
+                    st.success("✅ Login successful!")
+                    st.balloons()  # Add celebration effect
+                    st.rerun()
+                else:
+                    st.error("❌ Invalid credentials")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
     
     return False
 
@@ -910,7 +1028,7 @@ def main():
         return
     
     # Sidebar navigation
-    st.sidebar.title("🤖 RHR AI Agent")
+    st.sidebar.title("RHR AI Agent")
     st.sidebar.success(f"Logged in as: {st.secrets['auth']['username']}")
     
     if st.sidebar.button("Logout"):
