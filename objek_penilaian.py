@@ -623,56 +623,65 @@ def check_authentication():
     return st.session_state.get('authenticated', False)
 
 def login():
-    """Handle user login with elegant minimal design"""
+    """Handle user login with elegant minimal design - Full screen overlay"""
     
-    # Enhanced CSS for elegant login
+    # Hide the main app header and other elements
     st.markdown("""
     <style>
+        /* Hide Streamlit elements during login */
+        .main > div:first-child {
+            display: none;
+        }
+        header[data-testid="stHeader"] {
+            display: none;
+        }
+        .stApp > div:first-child {
+            display: none;
+        }
+        
         .login-container {
             max-width: 400px;
             margin: 0 auto;
             padding: 2rem;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: rgba(255, 255, 255, 0.95);
             border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
         }
         
         .login-header {
             text-align: center;
-            color: white;
+            color: #2c3e50;
             font-size: 1.8rem;
             font-weight: 600;
             margin-bottom: 1.5rem;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
         
         .login-subtitle {
             text-align: center;
-            color: rgba(255,255,255,0.8);
+            color: #7f8c8d;
             font-size: 0.9rem;
             margin-bottom: 2rem;
         }
         
         /* Custom input styling */
         .stTextInput > div > div > input {
-            background: rgba(255,255,255,0.1);
-            border: 1px solid rgba(255,255,255,0.2);
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
             border-radius: 12px;
-            color: white;
+            color: #2c3e50;
             padding: 12px 16px;
             font-size: 14px;
-            backdrop-filter: blur(10px);
         }
         
         .stTextInput > div > div > input::placeholder {
-            color: rgba(255,255,255,0.6);
+            color: #adb5bd;
         }
         
         .stTextInput > div > div > input:focus {
-            border: 2px solid rgba(255,255,255,0.4);
-            box-shadow: 0 0 20px rgba(255,255,255,0.1);
+            border: 2px solid #667eea;
+            box-shadow: 0 0 20px rgba(102, 126, 234, 0.1);
         }
         
         /* Custom button styling */
@@ -701,11 +710,21 @@ def login():
         
         /* Center the login container */
         .login-wrapper {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 60vh;
-            padding: 2rem 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            z-index: 9999;
+        }
+        
+        /* Hide main content when login is active */
+        .main-content-hidden {
+            display: none;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -725,7 +744,7 @@ def login():
     with col2:
         st.markdown("""
         <div class="login-container">
-            <div class="login-header">RHR AI Agent</div>
+            <div class="login-header">🤖 RHR AI Agent</div>
             <div class="login-subtitle">Secure Login Required</div>
         </div>
         """, unsafe_allow_html=True)
@@ -1019,39 +1038,34 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
             )
 
 def main():
-    # """Main application"""
-    # st.markdown('<h1 class="main-header"> RHR AI Agent </h1>', unsafe_allow_html=True)
+    """Main application with proper login handling"""
     
-    # Check authentication
+    # Check authentication FIRST
     if not check_authentication():
+        # Clear everything and show only login
+        st.markdown("""
+        <style>
+            .main .block-container {
+                padding-top: 0;
+                padding-bottom: 0;
+                max-width: 100%;
+            }
+        </style>
+        """, unsafe_allow_html=True)
         login()
         return
     
+    # Only show main app after authentication
+    st.markdown('<h1 class="main-header">🚀 RHR AI Agent </h1>', unsafe_allow_html=True)
+    
     # Sidebar navigation
-    st.sidebar.title("RHR AI Agent")
+    st.sidebar.title("🤖 RHR AI Agent")
     st.sidebar.success(f"Logged in as: {st.secrets['auth']['username']}")
     
     if st.sidebar.button("Logout"):
         st.session_state.authenticated = False
         st.rerun()
 
-    
-    # Handle example query injection
-    if hasattr(st.session_state, 'example_query'):
-        st.info(f"Running example: {st.session_state.example_query}")
-        # Add to chat messages
-        if 'chat_messages' not in st.session_state:
-            st.session_state.chat_messages = []
-        
-        st.session_state.chat_messages.append({
-            "role": "user", 
-            "content": st.session_state.example_query
-        })
-        
-        # Clear the example query
-        del st.session_state.example_query
-        st.rerun()
-    
     render_ai_chat()
     
     # Sidebar system status
@@ -1063,13 +1077,6 @@ def main():
         st.sidebar.success("🗄️ Database Connected")
     else:
         st.sidebar.error("❌ Database Disconnected")
-    
-    # Geocoding service status
-    try:
-        google_api_key = st.secrets["google"]["api_key"]
-        st.sidebar.success("🌍 Geocoding Available")
-    except KeyError:
-        st.sidebar.warning("⚠️ Geocoding Unavailable")
     
     # Chat status
     if hasattr(st.session_state, 'chat_messages'):
