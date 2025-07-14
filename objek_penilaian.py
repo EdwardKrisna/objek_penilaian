@@ -723,38 +723,12 @@ Use context appropriately for follow-up questions."""
         response_container = st.empty()
         full_response = ""
         
-        # Try-catch for the agents library execution
-        try:
-            # Run agent with streaming
-            result = Runner.run_streamed(main_agent, input=enhanced_query)
-            async for event in result.stream_events():
-                if hasattr(event, 'type') and event.type == "raw_response_event":
-                    if hasattr(event, 'data') and hasattr(event.data, 'delta'):
-                        full_response += event.data.delta
-                        response_container.markdown(full_response + "▌")
-        except (ImportError, AttributeError, TypeError) as agent_error:
-            st.error(f"Agent execution error: {agent_error}")
-            # Fallback: Use direct OpenAI API call
-            try:
-                import openai
-                client = openai.OpenAI(api_key=st.secrets["openai"]["api_key"])
-                
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": main_agent.instructions},
-                        {"role": "user", "content": enhanced_query}
-                    ],
-                    stream=True
-                )
-                
-                for chunk in response:
-                    if chunk.choices[0].delta.content is not None:
-                        full_response += chunk.choices[0].delta.content
-                        response_container.markdown(full_response + "▌")
-                        
-            except Exception as fallback_error:
-                full_response = f"Error in both agent and fallback: {fallback_error}"
+        # Run agent with streaming
+        result = Runner.run_streamed(main_agent, input=enhanced_query)
+        async for event in result.stream_events():
+            if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
+                full_response += event.data.delta
+                response_container.markdown(full_response + "▌")
         
         response_container.markdown(full_response)
         return full_response
@@ -870,29 +844,14 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
         # Process assistant response
         with st.spinner("🤖 Processing..."):
             try:
-                # Try using existing event loop if available
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        # Create a task if loop is already running
-                        import concurrent.futures
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            future = executor.submit(
-                                lambda: asyncio.run(process_user_query(prompt, main_agent))
-                            )
-                            response = future.result(timeout=30)
-                    else:
-                        response = loop.run_until_complete(
-                            process_user_query(prompt, main_agent)
-                        )
-                except RuntimeError:
-                    # Create new event loop
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    response = loop.run_until_complete(
-                        process_user_query(prompt, main_agent)
-                    )
-                    loop.close()
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                response = loop.run_until_complete(
+                    process_user_query(prompt, main_agent)
+                )
+                
+                loop.close()
                 
                 # Check if a visualization was created
                 viz_data = st.session_state.get('last_visualization', None)
@@ -1065,73 +1024,6 @@ def main():
         st.sidebar.success("🌍 Geocoding Available")
     except KeyError:
         st.sidebar.warning("⚠️ Geocoding Unavailable")
-    
-    # OpenAI API status
-    try:
-        openai_api_key = st.secrets["openai"]["api_key"]
-        st.sidebar.success("🤖 OpenAI API Available")
-    except KeyError:
-        st.sidebar.error("❌ OpenAI API Key Missing")
-    
-    # Agents library status
-    try:
-        from agents import Agent, function_tool, Runner, set_default_openai_key
-        st.sidebar.success("🔧 Agents Library Available")
-    except ImportError:
-        st.sidebar.error("❌ Agents Library Missing")
-        st.sidebar.caption("Install: pip install openai-agents")
-    
-    # Required dependencies check
-    dependencies_status = {}
-    required_libs = {
-        'streamlit': 'Streamlit',
-        'pandas': 'Pandas', 
-        'sqlalchemy': 'SQLAlchemy',
-        'plotly': 'Plotly',
-        'requests': 'Requests',
-        'psycopg2': 'PostgreSQL Driver'
-    }
-    
-    all_deps_ok = True
-    for lib, name in required_libs.items():
-        try:
-            __import__(lib)
-            dependencies_status[name] = True
-        except ImportError:
-            dependencies_status[name] = False
-            all_deps_ok = False
-    
-    if all_deps_ok:
-        st.sidebar.success("📦 All Dependencies OK")
-    else:
-        st.sidebar.error("❌ Missing Dependencies")
-        with st.sidebar.expander("Dependency Details"):
-            for dep, status in dependencies_status.items():
-                if status:
-                    st.success(f"✅ {dep}")
-                else:
-                    st.error(f"❌ {dep}")
-    
-    # Chat status
-    if hasattr(st.session_state, 'chat_messages'):
-        st.sidebar.info(f"💬 Messages: {len(st.session_state.chat_messages)}")
-    
-    # System health summary
-    health_items = [
-        hasattr(st.session_state, 'db_connection') and st.session_state.db_connection.connection_status,
-        'google' in st.secrets and 'api_key' in st.secrets['google'],
-        'openai' in st.secrets and 'api_key' in st.secrets['openai'],
-        all_deps_ok
-    ]
-    
-    health_score = sum(health_items) / len(health_items) * 100
-    
-    if health_score == 100:
-        st.sidebar.success(f"💚 System Health: {health_score:.0f}%")
-    elif health_score >= 75:
-        st.sidebar.warning(f"🟡 System Health: {health_score:.0f}%")
-    else:
-        st.sidebar.error(f"🔴 System Health: {health_score:.0f}%")
     
     # Chat status
     if hasattr(st.session_state, 'chat_messages'):
