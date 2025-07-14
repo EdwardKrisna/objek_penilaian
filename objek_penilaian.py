@@ -918,54 +918,6 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
                 use_container_width=True
             )
 
-def render_examples():
-    """Render example queries to help users"""
-    st.markdown('<div class="section-header">Contoh Query yang Bisa Anda Coba</div>', unsafe_allow_html=True)
-    
-    examples = {
-        "📊 Analisis Data": [
-            "Berapa banyak proyek yang kita miliki di Jakarta?",
-            "Siapa 5 client terbesar kita?",
-            "Jenis properti apa yang paling sering dinilai?",
-            "Proyek mana saja yang statusnya masih aktif?",
-            "Berapa proyek per cabang?"
-        ],
-        "🗺️ Visualisasi Peta": [
-            "Buatkan peta semua proyek di Bali",
-            "Tampilkan lokasi proyek client terbesar",
-            "Peta proyek yang statusnya completed",
-            "Visualisasi sebaran proyek di Jawa Barat"
-        ],
-        "📈 Grafik & Chart": [
-            "Buatkan grafik pemberi tugas per cabang",
-            "Grafik pie untuk jenis objek penilaian", 
-            "Chart status proyek saat ini",
-            "Grafik bar client terbesar"
-        ],
-        "📍 Pencarian Lokasi": [
-            "Proyek terdekat dari Mall Taman Anggrek radius 1km",
-            "Cari proyek sekitar Setiabudi One dalam radius 500m",
-            "Proyek dekat Senayan dengan radius 2km"
-        ],
-        "🔄 Follow-up Kontekstual": [
-            "Yang pertama", "Yang terakhir", "Yang terbesar",
-            "Detail lengkap yang di Jakarta Selatan",
-            "Buatkan tabel dari hasil tadi",
-            "Yang statusnya completed"
-        ]
-    }
-    
-    for category, queries in examples.items():
-        with st.expander(category, expanded=False):
-            for query in queries:
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.write(f"• {query}")
-                with col2:
-                    if st.button("Try", key=f"try_{hash(query)}", use_container_width=True):
-                        st.session_state.example_query = query
-                        st.rerun()
-
 def main():
     """Main application"""
     st.markdown('<h1 class="main-header">🚀 RHR AI Agent </h1>', unsafe_allow_html=True)
@@ -982,31 +934,25 @@ def main():
     if st.sidebar.button("Logout"):
         st.session_state.authenticated = False
         st.rerun()
+
     
-    # Main app tabs
-    tab1, tab2 = st.tabs(["💬 AI Chat", "📝 Examples"])
-    
-    with tab1:
-        # Handle example query injection
-        if hasattr(st.session_state, 'example_query'):
-            st.info(f"Running example: {st.session_state.example_query}")
-            # Add to chat messages
-            if 'chat_messages' not in st.session_state:
-                st.session_state.chat_messages = []
-            
-            st.session_state.chat_messages.append({
-                "role": "user", 
-                "content": st.session_state.example_query
-            })
-            
-            # Clear the example query
-            del st.session_state.example_query
-            st.rerun()
+    # Handle example query injection
+    if hasattr(st.session_state, 'example_query'):
+        st.info(f"Running example: {st.session_state.example_query}")
+        # Add to chat messages
+        if 'chat_messages' not in st.session_state:
+            st.session_state.chat_messages = []
         
-        render_ai_chat()
+        st.session_state.chat_messages.append({
+            "role": "user", 
+            "content": st.session_state.example_query
+        })
+        
+        # Clear the example query
+        del st.session_state.example_query
+        st.rerun()
     
-    with tab2:
-        render_examples()
+    render_ai_chat()
     
     # Sidebar system status
     st.sidebar.markdown("---")
