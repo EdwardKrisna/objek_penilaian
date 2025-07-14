@@ -628,15 +628,15 @@ def login():
     # Hide the main app header and other elements
     st.markdown("""
     <style>
-        /* Hide Streamlit elements during login */
-        .main > div:first-child {
-            display: none;
-        }
+        /* Hide Streamlit header only */
         header[data-testid="stHeader"] {
             display: none;
         }
-        .stApp > div:first-child {
-            display: none;
+        
+        /* Ensure form elements are visible */
+        .stTextInput, .stButton, .stForm {
+            display: block !important;
+            visibility: visible !important;
         }
         
         .login-container {
@@ -667,45 +667,48 @@ def login():
         
         /* Custom input styling */
         .stTextInput > div > div > input {
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 12px;
-            color: #2c3e50;
-            padding: 12px 16px;
-            font-size: 14px;
+            background: #f8f9fa !important;
+            border: 1px solid #e9ecef !important;
+            border-radius: 12px !important;
+            color: #2c3e50 !important;
+            padding: 12px 16px !important;
+            font-size: 14px !important;
+            width: 100% !important;
         }
         
         .stTextInput > div > div > input::placeholder {
-            color: #adb5bd;
+            color: #adb5bd !important;
         }
         
         .stTextInput > div > div > input:focus {
-            border: 2px solid #667eea;
-            box-shadow: 0 0 20px rgba(102, 126, 234, 0.1);
+            border: 2px solid #667eea !important;
+            box-shadow: 0 0 20px rgba(102, 126, 234, 0.1) !important;
+            outline: none !important;
         }
         
         /* Custom button styling */
         .stButton > button {
-            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
-            border: none;
-            border-radius: 12px;
-            color: white;
-            font-weight: 600;
-            padding: 12px 32px;
-            width: 100%;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(238, 90, 82, 0.3);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            border: none !important;
+            border-radius: 12px !important;
+            color: white !important;
+            font-weight: 600 !important;
+            padding: 12px 32px !important;
+            width: 100% !important;
+            transition: all 0.3s ease !important;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3) !important;
         }
         
         .stButton > button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(238, 90, 82, 0.4);
+            transform: translateY(-2px) !important;
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4) !important;
         }
         
-        /* Hide streamlit form styling */
-        .stForm {
-            background: transparent;
-            border: none;
+        /* Show form elements */
+        .stForm > div {
+            background: transparent !important;
+            border: none !important;
+            padding: 0 !important;
         }
         
         /* Center the login container */
@@ -739,9 +742,8 @@ def login():
     # Create centered login container
     st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col2:
+    # Single column layout for better control
+    with st.container():
         st.markdown("""
         <div class="login-container">
             <div class="login-header">🤖 RHR AI Agent</div>
@@ -751,24 +753,21 @@ def login():
         
         # Login form with custom styling
         with st.form("login_form", clear_on_submit=False):
-            st.markdown('<div style="margin-top: -2rem;">', unsafe_allow_html=True)
             
             username = st.text_input(
                 "Username", 
                 placeholder="Enter your username",
-                label_visibility="collapsed"
+                key="login_username"
             )
             
             password = st.text_input(
                 "Password", 
                 type="password",
                 placeholder="Enter your password",
-                label_visibility="collapsed"
+                key="login_password"
             )
             
-            st.markdown('<div style="margin: 1.5rem 0 0.5rem 0;">', unsafe_allow_html=True)
-            submit_button = st.form_submit_button("🚀 Login", use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            submit_button = st.form_submit_button("🚀 Login")
             
             if submit_button:
                 if username == valid_username and password == valid_password:
@@ -778,8 +777,6 @@ def login():
                     st.rerun()
                 else:
                     st.error("❌ Invalid credentials")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -1065,7 +1062,7 @@ def main():
     if st.sidebar.button("Logout"):
         st.session_state.authenticated = False
         st.rerun()
-
+    
     render_ai_chat()
     
     # Sidebar system status
