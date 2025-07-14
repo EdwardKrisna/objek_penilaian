@@ -16,13 +16,13 @@ from openai.types.responses import ResponseTextDeltaEvent
 
 warnings.filterwarnings('ignore')
 
-# Set page config
-st.set_page_config(
-    page_title="RHR AI Agent",
-    page_icon=None,
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# # Set page config
+# st.set_page_config(
+#     page_title="RHR AI Agent",
+#     page_icon=None,
+#     layout="wide",
+#     initial_sidebar_state="expanded"
+# )
 
 # Custom CSS
 st.markdown("""
@@ -725,7 +725,7 @@ def login():
     with col2:
         st.markdown("""
         <div class="login-container">
-            <div class="login-header">🤖 RHR AI Agent</div>
+            <div class="login-header">RHR AI Agent</div>
             <div class="login-subtitle">Secure Login Required</div>
         </div>
         """, unsafe_allow_html=True)
