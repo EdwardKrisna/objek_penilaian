@@ -683,7 +683,7 @@ AI: "AFP adalah kode JC yang tercatat di database. Saya tidak memiliki data nama
 - If user asks for details not in database → Say "Information not available in this database"  
 - If user asks you to interpret codes → Say "I cannot interpret codes without reference data"
 - Always show actual query results, never "enhanced" versions""",
-        model="o4-mini",  
+        model="o3",  
         tools=[
             execute_sql_query,
             create_map_visualization, 
