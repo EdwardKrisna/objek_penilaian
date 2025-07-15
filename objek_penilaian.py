@@ -305,7 +305,7 @@ def create_map_visualization(sql_query: str, title: str = "Property Locations") 
 def create_chart_visualization(chart_type: str, sql_query: str, title: str, 
                               x_column: str = None, y_column: str = None, 
                               color_column: str = None) -> str:
-    """Create chart visualizations with proper data type handling"""
+    """Create chart visualizations with smart color handling for line charts"""
     try:
         # Execute query
         result_df, query_msg = st.session_state.db_connection.execute_query(sql_query)
@@ -325,32 +325,36 @@ def create_chart_visualization(chart_type: str, sql_query: str, title: str,
             numeric_cols = result_df.select_dtypes(include=['number']).columns.tolist()
             y_column = numeric_cols[0] if numeric_cols else result_df.columns[1] if len(result_df.columns) > 1 else None
         
-        # FIX FOR LINE CHARTS - PROPER DATA TYPE HANDLING
+        fig = None
+        
+        # Create chart based on type
         if chart_type == "line":
-            # Clean and prepare data for line chart
+            # FIX: Smart color column handling for line charts
             line_df = result_df.copy()
             
-            # Handle double precision x-axis (like tahun_kontrak)
-            if x_column in line_df.columns:
-                # Convert to integer if it's year data
-                if 'tahun' in x_column.lower() or 'year' in x_column.lower():
-                    line_df[x_column] = line_df[x_column].astype(int)
-                
-                # Sort by x-axis to ensure proper line connection
-                line_df = line_df.sort_values(x_column)
-                
-                # Remove any NaN values that break line continuity
-                line_df = line_df.dropna(subset=[x_column, y_column])
+            # Sort by x-axis
+            line_df = line_df.sort_values(x_column)
             
-            # Create line chart with fixed data
-            fig = px.line(line_df, x=x_column, y=y_column, color=color_column, 
+            # Check if we should use color column for line charts
+            use_color = None
+            if color_column and color_column in line_df.columns:
+                # Count unique values per color group
+                color_counts = line_df.groupby(color_column).size()
+                
+                # Only use color if multiple points per group (for proper lines)
+                if color_counts.min() >= 2:
+                    use_color = color_column
+                # If single points per color, don't use color (creates disconnected points)
+                else:
+                    use_color = None
+                    st.info(f"Removed color grouping for line chart - each category has only 1 point")
+            
+            # Create line chart with conditional color
+            fig = px.line(line_df, x=x_column, y=y_column, color=use_color, 
                          title=title, markers=True)
             
-            # Additional line chart styling
-            fig.update_traces(
-                line=dict(width=3),  # Make lines more visible
-                marker=dict(size=8)  # Make markers visible
-            )
+            # Make lines more visible
+            fig.update_traces(line=dict(width=3), marker=dict(size=8))
             
         elif chart_type == "bar":
             fig = px.bar(result_df, x=x_column, y=y_column, color=color_column, title=title)
@@ -376,17 +380,11 @@ def create_chart_visualization(chart_type: str, sql_query: str, title: str,
             fig.update_layout(xaxis_tickangle=-45)
         
         if fig:
-            # Enhanced layout for better visibility
             fig.update_layout(
                 height=500,
                 template="plotly_white",
                 title_x=0.5,
-                margin=dict(l=50, r=50, t=80, b=100),
-                # Fix x-axis for year data
-                xaxis=dict(
-                    type='linear' if chart_type == "line" and 'tahun' in str(x_column).lower() else 'category',
-                    tickmode='linear' if chart_type == "line" and 'tahun' in str(x_column).lower() else 'array'
-                )
+                margin=dict(l=50, r=50, t=80, b=100)
             )
         
         if fig:
@@ -572,7 +570,7 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
         return f"Error finding nearby projects: {str(e)}"
 
 def initialize_main_agent():
-    """Initialize the single o4-mini agent that handles everything"""
+    """Initialize the single gpt-4.1 agent that handles everything"""
     
     # Set OpenAI API key
     try:
@@ -589,7 +587,7 @@ def initialize_main_agent():
         st.error("Table name not found in secrets.toml")
         return None
     
-    # Single Unified Agent using o4-mini
+    # Single Unified Agent using gpt-4.1
     main_agent = Agent(
         name="rhr_assistant",
         instructions=f"""
