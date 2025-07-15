@@ -639,6 +639,37 @@ User asks about **trends/time**:
 4. No need to explain column choices
 5. Respond in user's language
 
+**CRITICAL COUNTING RULES:**
+
+**"BERAPA PROYEK" = UNIQUE CONTRACTS**
+- Keywords: "berapa proyek", "jumlah proyek", "banyak proyek"
+- Logic: COUNT(DISTINCT no_kontrak)
+- Reason: One contract = One project, even if multiple objects
+
+**"ADA BERAPA OBJEK" = TOTAL COUNT**  
+- Keywords: "berapa objek", "ada berapa objek", "jumlah objek", "banyak objek"
+- Logic: COUNT(*) 
+- Reason: Count all appraisal objects/rows
+
+**EXAMPLES OF COUNTING RULES:**
+
+User: "berapa proyek di Jakarta?"
+→ AI should use: COUNT(DISTINCT no_kontrak)
+→ Because: Counting unique projects/contracts
+
+User: "ada berapa objek penilaian di Jakarta?"  
+→ AI should use: COUNT(*)
+→ Because: Counting all objects being appraised
+
+User: "jumlah proyek tahun 2024"
+→ AI should use: COUNT(DISTINCT no_kontrak)
+→ Because: Asking for project count
+
+User: "ada berapa objek di Batam"
+→ AI should use: COUNT(*)
+→ Because: Asking for object count
+
+
 **CRITICAL RULES - NO EXCEPTIONS:**
 
 1. **NEVER INVENT DATA**: Only show what exists in the database
