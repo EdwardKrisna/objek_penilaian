@@ -404,10 +404,10 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
         st.success(f"📍 Location found: {formatted_address}")
         st.info(f"Coordinates: {lat:.6f}, {lng:.6f}")
         
-        # Get table name
-        table_name = st.secrets["database"]["table_name"]
+        # FIX 1: Use hardcoded table name instead of secrets
+        table_name = "objek_penilaian"  # Direct table name instead of st.secrets["database"]["table_name"]
         
-        # Query nearby projects using Haversine formula
+        # FIX 2: Improved query with better coordinate handling
         sql_query = f"""
         SELECT 
             id,
@@ -421,10 +421,13 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
             jenis_objek_text,
             status_text,
             cabang_text,
+            no_kontrak,
             (6371 * acos(
-                cos(radians({lat})) * cos(radians(latitude)) * 
-                cos(radians(longitude) - radians({lng})) + 
-                sin(radians({lat})) * sin(radians(latitude))
+                GREATEST(-1, LEAST(1, 
+                    cos(radians({lat})) * cos(radians(CAST(latitude AS NUMERIC))) * 
+                    cos(radians(CAST(longitude AS NUMERIC)) - radians({lng})) + 
+                    sin(radians({lat})) * sin(radians(CAST(latitude AS NUMERIC)))
+                ))
             )) as distance_km
         FROM {table_name}
         WHERE 
@@ -432,11 +435,15 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
             AND longitude IS NOT NULL
             AND latitude != 0 
             AND longitude != 0
-            AND (6371 * acos(
-                cos(radians({lat})) * cos(radians(latitude)) * 
-                cos(radians(longitude) - radians({lng})) + 
-                sin(radians({lat})) * sin(radians(latitude))
-            )) <= {radius_km}
+            AND CAST(latitude AS NUMERIC) BETWEEN -90 AND 90
+            AND CAST(longitude AS NUMERIC) BETWEEN -180 AND 180
+        HAVING (6371 * acos(
+            GREATEST(-1, LEAST(1, 
+                cos(radians({lat})) * cos(radians(CAST(latitude AS NUMERIC))) * 
+                cos(radians(CAST(longitude AS NUMERIC)) - radians({lng})) + 
+                sin(radians({lat})) * sin(radians(CAST(latitude AS NUMERIC)))
+            ))
+        )) <= {radius_km}
         ORDER BY distance_km ASC
         LIMIT 50
         """
@@ -470,6 +477,11 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
                     f"Kab/Kota: {row['wadmkk']}",
                     f"Jarak: {row['distance_km']:.2f} km"
                 ]
+                
+                # Add contract number if available
+                if 'no_kontrak' in row and pd.notna(row['no_kontrak']):
+                    text_parts.insert(1, f"Kontrak: {row['no_kontrak']}")
+                
                 hover_text.append("<br>".join(text_parts))
             
             fig.add_trace(go.Scattermapbox(
@@ -525,7 +537,7 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
             return f"✅ Found {len(result_df)} projects within {radius_km} km from {location_name}. Closest project is {result_df['distance_km'].min():.2f} km away."
         
         else:
-            return f"❌ No projects found within {radius_km} km from {location_name}."
+            return f"❌ No projects found within {radius_km} km from {location_name}. Query message: {query_msg}"
         
     except Exception as e:
         return f"Error finding nearby projects: {str(e)}"
