@@ -235,9 +235,9 @@ def create_map_visualization(sql_query: str, title: str = "Property Locations") 
         hover_text = []
         for idx, row in map_df.iterrows():
             text_parts = []
-            for col in ['id', 'nama_objek', 'pemberi_tugas', 'wadmpr', 'wadmkk']:
+            for col in ['nama_objek', 'pemberi_tugas', 'wadmpr', 'wadmkk']:
                 if col in row and pd.notna(row[col]):
-                    label = {'id': 'ID', 'nama_objek': 'Objek', 'pemberi_tugas': 'Client', 
+                    label = {'nama_objek': 'Objek', 'pemberi_tugas': 'Client', 
                             'wadmpr': 'Provinsi', 'wadmkk': 'Kab/Kota'}.get(col, col)
                     text_parts.append(f"{label}: {row[col]}")
             
@@ -410,7 +410,6 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
         # FIX 2: Improved query with better coordinate handling
         sql_query = f"""
         SELECT 
-            id,
             nama_objek,
             pemberi_tugas,
             latitude,
@@ -470,7 +469,6 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
             hover_text = []
             for idx, row in result_df.iterrows():
                 text_parts = [
-                    f"ID: {row['id']}",
                     f"Objek: {row['nama_objek']}",
                     f"Client: {row['pemberi_tugas']}",
                     f"Provinsi: {row['wadmpr']}",
@@ -530,7 +528,7 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
             # Show results table
             with st.expander("📊 Nearby Projects Details", expanded=False):
                 st.code(sql_query, language="sql")
-                st.dataframe(result_df[['id', 'nama_objek', 'pemberi_tugas', 'jenis_objek_text', 
+                st.dataframe(result_df[['nama_objek', 'pemberi_tugas', 'jenis_objek_text', 
                             'wadmpr', 'wadmkk', 'distance_km']].round(2), 
                 use_container_width=True)
 
@@ -570,7 +568,7 @@ TABLE: {table_name}
 **SMART COLUMN GROUPS - Auto-select based on user intent:**
 
 **CORE IDENTIFICATION** (Always useful)
-- id, nama_objek, no_kontrak
+- nama_objek, no_kontrak
 
 **CLIENT & BUSINESS**  
 - pemberi_tugas (client name)
@@ -615,7 +613,7 @@ TABLE: {table_name}
 **INTELLIGENT SELECTION EXAMPLES:**
 
 User asks about **locations/maps**:
-→ Auto-select: id, nama_objek, latitude, longitude, wadmpr, wadmkk, alamat_lokasi, pemberi_tugas
+→ Auto-select: nama_objek, latitude, longitude, wadmpr, wadmkk, alamat_lokasi, pemberi_tugas
 
 User asks about **clients**:
 → Auto-select: pemberi_tugas, jenis_klien, bidang_usaha_klien_text, COUNT(*), SUM(fee_kontrak)
