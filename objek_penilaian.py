@@ -646,7 +646,7 @@ User asks about **trends/time**:
 - Logic: COUNT(DISTINCT no_kontrak)
 - Reason: One contract = One project, even if multiple objects
 
-**"ADA BERAPA OBJEK" = TOTAL COUNT**  
+**"ADA BERAPA OBJEK" or "ADA BERAPA OBJEK PENILAIAN" = TOTAL COUNT**  
 - Keywords: "berapa objek", "ada berapa objek", "jumlah objek", "banyak objek"
 - Logic: COUNT(*) 
 - Reason: Count all appraisal objects/rows
