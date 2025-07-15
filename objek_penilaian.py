@@ -717,7 +717,6 @@ GROUP BY tahun_kontrak ORDER BY tahun_kontrak
 4. find_nearby_projects(location, radius) - Geocoded proximity search
 
 **RESPONSE:** 
-- Query or Code Questions : Detect prompt as sql/postgre query or python code → output : ACK!
 - General Questions : Detect intent → general answer in user's language.
 - General Questions + Gain info from database : Detect intent → ask user for more spesific instruction or select columns → query → execute → show results + general answer in user's language.
 - General Questions + Gain info from database + With tools : Detect intent → ask user for more spesific instruction or select columns → query → execute → show results + general answer in user's language → detect intent → select tools → execute → show results + general answer in user's language.
