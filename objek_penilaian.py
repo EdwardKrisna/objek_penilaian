@@ -639,8 +639,8 @@ Project Status & Timeline
 - "berapa objek" → COUNT(*)
 
 **BRANCH PATTERNS:**
-- Single branch/year: "medan per tahun" → GROUP BY tahun_kontrak WHERE cabang LIKE '%medan%'
-- Multi branch/year: "medan dan surabaya" → GROUP BY cabang_text, tahun_kontrak WHERE (medan OR surabaya)
+- Single branch/year: "<cabang_text> per tahun" → GROUP BY tahun_kontrak WHERE cabang LIKE '%<cabang_text>%'
+- Multi branch/year: "<cabang_text> dan <cabang_text>" → GROUP BY cabang_text, tahun_kontrak WHERE (<cabang_text> OR <cabang_text>)
 - All branches: "semua cabang" → GROUP BY cabang_text WHERE cabang_text IS NOT NULL
 
 **AUTO-VISUALIZATION:**
@@ -651,17 +651,17 @@ Project Status & Timeline
 
 **CORE PATTERNS:**
 ```sql
--- Location: "proyek di jakarta"
+-- Location: "proyek di <location>"
 SELECT nama_objek, latitude, longitude, pemberi_tugas, wadmkk 
-FROM objek_penilaian WHERE wadmkk ILIKE '%jakarta%'
+FROM objek_penilaian WHERE wadmkk ILIKE '%<location>%'
 
 -- Client ranking: "client terbesar"
 SELECT pemberi_tugas, COUNT(DISTINCT no_kontrak) as total_proyek
 FROM objek_penilaian GROUP BY pemberi_tugas ORDER BY total_proyek DESC
 
--- Branch analysis: "medan per tahun"
+-- Branch analysis: "proyek kantor cabang <cabang_text> per tahun"
 SELECT tahun_kontrak, COUNT(DISTINCT no_kontrak) as jumlah_proyek
-FROM objek_penilaian WHERE LOWER(cabang_text) LIKE '%medan%' 
+FROM objek_penilaian WHERE LOWER(cabang_text) LIKE '%<cabang_text>%' 
 GROUP BY tahun_kontrak ORDER BY tahun_kontrak
 ```
 
@@ -673,7 +673,7 @@ GROUP BY tahun_kontrak ORDER BY tahun_kontrak
 - Filter NULL values: WHERE column IS NOT NULL
 
 **NEVER:**
-- Expand abbreviations (AFP → "Ahmad Fauzi")  
+- Expand abbreviations (e.g., AFP → "Ahmad Fauzi")  
 - Create fake names or data
 - Answer non-database questions
 - Explain what you'll do - just do it
