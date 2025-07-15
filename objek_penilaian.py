@@ -409,7 +409,7 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
         
         # FIX 2: Improved query with better coordinate handling
         sql_query = f"""
-        SELECT 
+            SELECT 
             nama_objek,
             pemberi_tugas,
             latitude,
@@ -420,30 +420,25 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
             jenis_objek_text,
             cabang_text,
             no_kontrak,
-            (6371 * acos(
-                GREATEST(-1, LEAST(1, 
-                    cos(radians({lat})) * cos(radians(CAST(latitude AS NUMERIC))) * 
-                    cos(radians(CAST(longitude AS NUMERIC)) - radians({lng})) + 
-                    sin(radians({lat})) * sin(radians(CAST(latitude AS NUMERIC)))
-                ))
-            )) as distance_km
+            ST_DistanceSphere(
+                ST_MakePoint(longitude::double precision, latitude::double precision),
+                ST_MakePoint({lng}, {lat})
+            ) / 1000 AS distance_km
         FROM {table_name}
-        WHERE 
+        WHERE
             latitude IS NOT NULL 
             AND longitude IS NOT NULL
             AND latitude != 0 
             AND longitude != 0
-            AND CAST(latitude AS NUMERIC) BETWEEN -90 AND 90
-            AND CAST(longitude AS NUMERIC) BETWEEN -180 AND 180
-        HAVING (6371 * acos(
-            GREATEST(-1, LEAST(1, 
-                cos(radians({lat})) * cos(radians(CAST(latitude AS NUMERIC))) * 
-                cos(radians(CAST(longitude AS NUMERIC)) - radians({lng})) + 
-                sin(radians({lat})) * sin(radians(CAST(latitude AS NUMERIC)))
-            ))
-        )) <= {radius_km}
+            AND latitude BETWEEN -90 AND 90
+            AND longitude BETWEEN -180 AND 180
+            AND ST_DWithin(
+                ST_MakePoint(longitude::double precision, latitude::double precision)::geography,
+                ST_MakePoint({lng}, {lat})::geography,
+                {radius_km} * 1000
+            )
         ORDER BY distance_km ASC
-        LIMIT 50
+        LIMIT 100
         """
         
         # Execute query
