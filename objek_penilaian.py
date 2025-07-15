@@ -418,7 +418,6 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
             wadmkk,
             wadmkc,
             jenis_objek_text,
-            status_text,
             cabang_text,
             no_kontrak,
             (6371 * acos(
