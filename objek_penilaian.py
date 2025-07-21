@@ -569,6 +569,59 @@ def find_nearby_projects(location_name: str, radius_km: float = 1.0,
     except Exception as e:
         return f"Error finding nearby projects: {str(e)}"
 
+def analyze_counting_intent(query: str) -> str:
+    """Pre-analyze user query to determine counting type and add explicit instructions"""
+    query_lower = query.lower()
+    
+    # Project-level keywords
+    project_keywords = [
+        'penugasan', 'proyek', 'pekerjaan', 'penilaian', 'kajian', 'kontrak', 'proposal',
+        'assignment', 'project', 'work', 'appraisal', 'study', 'contract'
+    ]
+    
+    # Object-level keywords  
+    object_keywords = [
+        'objek', 'bangunan', 'tanah', 'aset', 'lokasi', 'properti', 'item',
+        'object', 'building', 'land', 'asset', 'location', 'property'
+    ]
+    
+    # Check for counting words
+    counting_words = ['berapa', 'jumlah', 'total', 'ada berapa', 'how many', 'count', 'number of']
+    has_counting = any(word in query_lower for word in counting_words)
+    
+    if has_counting:
+        # Check for project keywords
+        has_project_keywords = any(keyword in query_lower for keyword in project_keywords)
+        has_object_keywords = any(keyword in query_lower for keyword in object_keywords)
+        
+        if has_project_keywords and not has_object_keywords:
+            return f"""🎯 COUNTING ANALYSIS: This is a PROJECT-LEVEL query.
+MANDATORY: Use COUNT(DISTINCT no_kontrak) for counting.
+
+USER QUERY: {query}
+
+INSTRUCTION: When writing SQL, you MUST use COUNT(DISTINCT no_kontrak) because user asks about projects/assignments/contracts."""
+        
+        elif has_object_keywords and not has_project_keywords:
+            return f"""🎯 COUNTING ANALYSIS: This is an OBJECT-LEVEL query.
+MANDATORY: Use COUNT(*) for counting.
+
+USER QUERY: {query}
+
+INSTRUCTION: When writing SQL, you MUST use COUNT(*) because user asks about objects/buildings/assets."""
+        
+        elif has_project_keywords and has_object_keywords:
+            return f"""🎯 COUNTING ANALYSIS: This query mentions both PROJECT and OBJECT keywords.
+CLARIFICATION NEEDED: Determine from context whether user wants project count or object count.
+
+USER QUERY: {query}
+
+INSTRUCTION: Analyze carefully and choose:
+- COUNT(DISTINCT no_kontrak) if asking about projects
+- COUNT(*) if asking about objects within projects"""
+    
+    return query
+
 def initialize_main_agent():
     """Initialize the single gpt-4.1 agent that handles everything"""
     
@@ -593,6 +646,64 @@ def initialize_main_agent():
         instructions=f"""
 
 **TABLE: {table_name}**
+
+**CRITICAL: SMART COUNTING RULES (ANALYZE FIRST!)** 
+
+BEFORE writing ANY query, YOU MUST analyze the user's question and determine:
+
+**STEP 1: IDENTIFY COUNTING TYPE**
+- Does user ask about PROJECT-LEVEL counts? → Use COUNT(DISTINCT no_kontrak)
+- Does user ask about OBJECT-LEVEL counts? → Use COUNT(*)
+
+**PROJECT-LEVEL KEYWORDS (use COUNT(DISTINCT no_kontrak)):**
+- penugasan, proyek, pekerjaan, penilaian, kajian, kontrak, proposal
+- assignment, project, work, appraisal, study, contract
+- Variations: "berapa proyek", "jumlah penugasan", "total pekerjaan", "ada berapa kontrak"
+
+**OBJECT-LEVEL KEYWORDS (use COUNT(*)):**
+- objek, bangunan, tanah, aset, lokasi, properti, item
+- object, building, land, asset, location, property
+- Variations: "berapa objek", "jumlah bangunan", "total aset"
+
+**STEP 2: MANDATORY EXAMPLES TO FOLLOW**
+
+**CORRECT PROJECT COUNTING:**
+```sql
+-- "berapa proyek di Jakarta" 
+SELECT COUNT(DISTINCT no_kontrak) FROM objek_penilaian WHERE wadmkk ILIKE '%jakarta%'
+
+-- "jumlah penugasan tahun 2023"
+SELECT COUNT(DISTINCT no_kontrak) FROM objek_penilaian WHERE tahun_kontrak = 2023
+
+-- "proyek per cabang"
+SELECT cabang_text, COUNT(DISTINCT no_kontrak) as jumlah_proyek FROM objek_penilaian GROUP BY cabang_text
+
+-- "total pekerjaan client ABC"
+SELECT COUNT(DISTINCT no_kontrak) FROM objek_penilaian WHERE pemberi_tugas ILIKE '%ABC%'
+```
+
+**CORRECT OBJECT COUNTING:**
+```sql
+-- "berapa objek dalam database"
+SELECT COUNT(*) FROM objek_penilaian
+
+-- "jumlah bangunan di Jakarta"
+SELECT COUNT(*) FROM objek_penilaian WHERE wadmkk ILIKE '%jakarta%' AND jenis_objek_text ILIKE '%bangunan%'
+```
+
+**WRONG - DO NOT DO THIS:**
+```sql
+-- WRONG: Using COUNT(*) for project questions
+SELECT COUNT(*) FROM objek_penilaian WHERE wadmkk ILIKE '%jakarta%'  -- Should be COUNT(DISTINCT no_kontrak)
+
+-- WRONG: Using COUNT(DISTINCT no_kontrak) for object questions  
+SELECT COUNT(DISTINCT no_kontrak) FROM objek_penilaian WHERE jenis_objek_text ILIKE '%bangunan%'  -- Should be COUNT(*)
+```
+
+**STEP 3: EDGE CASES HANDLING**
+- "objek dalam proyek X" → COUNT(*) WHERE no_kontrak = 'X'
+- "proyek yang punya objek hotel" → COUNT(DISTINCT no_kontrak) WHERE jenis_objek_text ILIKE '%hotel%'
+- Mixed questions → Break down into separate queries
 
 **COLUMN INFORMATION :**
 - sumber (text): Data source or project entry source (e.g., "kontrak").
@@ -663,10 +774,6 @@ Project Status & Timeline
 - **Property** → jenis_objek_text, objek_penilaian
 - **Management** → cabang_text, jc_text, status_pekerjaan_text, divisi
 
-**SMART COUNTING:**
-- "berapa proyek" → COUNT(DISTINCT no_kontrak)
-- "berapa objek" → COUNT(*)
-
 **BRANCH PATTERNS:**
 - Single branch/year: "<cabang_text> per tahun" → GROUP BY tahun_kontrak WHERE cabang LIKE '%<cabang_text>%'
 - Multi branch/year: "<cabang_text> dan <cabang_text>" → GROUP BY cabang_text, tahun_kontrak WHERE (<cabang_text> OR <cabang_text>)
@@ -678,23 +785,8 @@ Project Status & Timeline
 - Comparisons → create_chart_visualization (bar)
 - Nearby searches → find_nearby_projects
 
-**CORE PATTERNS:**
-```sql
--- Location: "proyek di <location>"
-SELECT nama_objek, latitude, longitude, pemberi_tugas, wadmkk 
-FROM objek_penilaian WHERE wadmkk ILIKE '%<location>%'
-
--- Client ranking: "client terbesar"
-SELECT pemberi_tugas, COUNT(DISTINCT no_kontrak) as total_proyek
-FROM objek_penilaian GROUP BY pemberi_tugas ORDER BY total_proyek DESC
-
--- Branch analysis: "proyek kantor cabang <cabang_text> per tahun"
-SELECT tahun_kontrak, COUNT(DISTINCT no_kontrak) as jumlah_proyek
-FROM objek_penilaian WHERE LOWER(cabang_text) LIKE '%<cabang_text>%' 
-GROUP BY tahun_kontrak ORDER BY tahun_kontrak
-```
-
 **BEHAVIOR:**
+- ALWAYS analyze counting type FIRST before writing SQL
 - Detect user language → respond in same language
 - Location intent → auto-create maps
 - Show results immediately, no column explanations
@@ -702,6 +794,7 @@ GROUP BY tahun_kontrak ORDER BY tahun_kontrak
 - Filter NULL values: WHERE column IS NOT NULL
 
 **NEVER:**
+- Use wrong counting method (this causes hallucination!)
 - Expand abbreviations (e.g., AFP → "Ahmad Fauzi")  
 - Create fake names or data
 - Answer non-database questions
@@ -714,10 +807,11 @@ GROUP BY tahun_kontrak ORDER BY tahun_kontrak
 3. create_chart_visualization(type, sql, title, x, y) - Charts for trends
 4. find_nearby_projects(location, radius) - Geocoded proximity search
 
-**RESPONSE:** 
-- General Questions : Detect intent → general answer in user's language.
-- General Questions + Gain info from database : Detect intent → ask user for more spesific instruction or select columns → query → execute → show results + general answer in user's language.
-- General Questions + Gain info from database + With tools : Detect intent → ask user for more spesific instruction or select columns → query → execute → show results + general answer in user's language → detect intent → select tools → execute → show results + general answer in user's language.
+**RESPONSE PROCESS:** 
+1. Analyze query type (project vs object count)
+2. Choose correct counting method
+3. Execute query with proper COUNT function
+4. Show results + visualizations if applicable
 
 **SECURITY & SCOPE (CRITICAL):**
 - ONLY answer RHR property database questions
@@ -874,8 +968,11 @@ def initialize_geocode_service():
         return None
 
 async def process_user_query(query: str, main_agent: Agent) -> str:
-    """Process user query with the unified o4-mini agent"""
+    """Process user query with the unified gpt-4.1 agent"""
     try:
+        # PRE-PROCESS: Analyze counting intent to prevent hallucination
+        analyzed_query = analyze_counting_intent(query)
+        
         # Build conversation context
         conversation_context = ""
         if hasattr(st.session_state, 'chat_messages') and len(st.session_state.chat_messages) > 1:
@@ -891,17 +988,17 @@ async def process_user_query(query: str, main_agent: Agent) -> str:
             if context_parts:
                 conversation_context = "\n".join(context_parts)
         
-        # Enhanced query with context
-        enhanced_query = query
+        # Enhanced query with context and counting analysis
+        enhanced_query = analyzed_query
         if conversation_context:
             enhanced_query = f"""CONVERSATION CONTEXT:
 {conversation_context}
 
-CURRENT REQUEST: {query}
+{analyzed_query}
 
 Use context appropriately for follow-up questions."""
         
-        # Streaming response with o4-mini
+        # Streaming response with gpt-4.1
         response_container = st.empty()
         full_response = ""
         
@@ -937,22 +1034,26 @@ def render_ai_chat():
     # Agent status display
     st.markdown("""
     <div class="agent-status">
-        🤖 KJPP RHR FIRST AI AGENT - Handling All Tasks
+        🤖 KJPP RHR FIRST AI AGENT - Enhanced Smart Counting System
     </div>
     """, unsafe_allow_html=True)
     
     # Initialize chat history
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
-        welcome_msg = """Halo! Saya RHR AI Agent !
+        welcome_msg = """Halo! Saya RHR AI Agent dengan Enhanced Smart Counting System!
 
 **Kemampuan Saya:**
 - 💬 **Percakapan Natural**: Saya berbicara dalam bahasa yang anda gunakan!
-- 📊 **Analisis Data**: "Berapa proyek di Jakarta?" ,"Siapa client terbesar?"
+- 📊 **Analisis Data Cerdas**: "Berapa proyek di Jakarta?" ,"Siapa client terbesar?"
+- 🎯 **Smart Counting**: Otomatis mendeteksi proyek vs objek untuk counting yang akurat
 - 🗺️ **Visualisasi Peta**: "Buatkan peta semua proyek di Bali"
 - 📈 **Grafik & Chart**: "Grafik pemberi tugas per cabang"
 - 📍 **Pencarian Lokasi**: "Proyek terdekat dari Mall Taman Anggrek radius 1km"
 - 🔄 **Follow-up Kontekstual**: "Yang pertama" • "Detail yang di Jakarta Selatan"
+
+**Kata Kunci Project (COUNT DISTINCT):** penugasan, proyek, pekerjaan, penilaian, kajian, kontrak, proposal
+**Kata Kunci Object (COUNT ALL):** objek, bangunan, tanah, aset, lokasi, properti
 
 Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
         
@@ -1103,14 +1204,15 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
         if st.button("💾 Export Chat", use_container_width=True):
             chat_export = {
                 "timestamp": datetime.now().isoformat(),
-                "agent_model": "o4-mini",
+                "agent_model": "gpt-4.1-enhanced",
+                "smart_counting_enabled": True,
                 "chat_messages": st.session_state.chat_messages
             }
             
             st.download_button(
                 label="Download",
                 data=json.dumps(chat_export, indent=2, ensure_ascii=False),
-                file_name=f"rhr_o4_chat_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                file_name=f"rhr_enhanced_chat_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
                 mime="application/json",
                 use_container_width=True
             )
@@ -1125,11 +1227,14 @@ def main():
         return
     
     # Only show main app after authentication
-    st.markdown('<h1 class="main-header">🚀 RHR AI Agent </h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🚀 RHR AI Agent - Enhanced Version</h1>', unsafe_allow_html=True)
     
     # Sidebar navigation
-    st.sidebar.title("🤖 RHR AI Agent")
+    st.sidebar.title("🤖 RHR AI Agent Enhanced")
     st.sidebar.success(f"Logged in as: {st.secrets['auth']['username']}")
+    
+    # Enhanced version info
+    st.sidebar.info("✨ **Enhanced Smart Counting System**\n- Auto-detects project vs object queries\n- Prevents counting hallucination\n- Improved accuracy")
     
     if st.sidebar.button("Logout"):
         st.session_state.authenticated = False
@@ -1163,6 +1268,9 @@ def main():
         st.sidebar.success("🗄️ Database Connected")
     else:
         st.sidebar.error("❌ Database Disconnected")
+    
+    # Smart counting status
+    st.sidebar.success("🎯 Smart Counting: Enabled")
     
     # Chat status
     if hasattr(st.session_state, 'chat_messages'):
