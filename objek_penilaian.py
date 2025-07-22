@@ -1227,7 +1227,7 @@ def main():
         return
     
     # Only show main app after authentication
-    st.markdown('<h1 class="main-header">🚀 RHR AI Agent - Enhanced Version</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🚀 RHR AI Agent</h1>', unsafe_allow_html=True)
     
     # Sidebar navigation
     st.sidebar.title("🤖 RHR AI Agent Enhanced")
