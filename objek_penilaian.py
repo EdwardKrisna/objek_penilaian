@@ -11,7 +11,7 @@ import requests
 import math
 import asyncio
 import re
-from agents import Agent, function_tool, Runner, set_default_openai_key
+from agents import Agent, function_tool, Runner, set_default_openai_key, SQLiteSession
 from openai.types.responses import ResponseTextDeltaEvent
 
 warnings.filterwarnings('ignore')
@@ -967,43 +967,57 @@ def initialize_geocode_service():
         st.session_state.geocode_service = None
         return None
 
+def initialize_session():
+    """Initialize SQLite session for conversation persistence"""
+    if 'conversation_session' not in st.session_state:
+        # Create unique session ID based on user and timestamp
+        import hashlib
+        session_id = hashlib.md5(f"rhr_user_{datetime.now().date()}".encode()).hexdigest()[:12]
+        
+        # Create session with database file in the same directory
+        st.session_state.conversation_session = SQLiteSession(
+            session_id=session_id,
+            db_path="rhr_conversations.db"
+        )
+        st.session_state.session_id = session_id
+    
+    return st.session_state.conversation_session
+
+def get_session_info():
+    """Get current session information"""
+    if 'conversation_session' in st.session_state:
+        return {
+            "session_id": st.session_state.session_id,
+            "active": True
+        }
+    return {"session_id": None, "active": False}
+
+def clear_session():
+    """Clear current conversation session"""
+    if 'conversation_session' in st.session_state:
+        # Note: SQLiteSession doesn't have a clear method, so we create a new session
+        del st.session_state.conversation_session
+        del st.session_state.session_id
+        # Re-initialize with new session
+        initialize_session()
+        return True
+    return False
+
 async def process_user_query(query: str, main_agent: Agent) -> str:
-    """Process user query with the unified gpt-4.1 agent"""
+    """Process user query with the unified gpt-4.1 agent using SQLite session"""
     try:
         # PRE-PROCESS: Analyze counting intent to prevent hallucination
         analyzed_query = analyze_counting_intent(query)
         
-        # Build conversation context
-        conversation_context = ""
-        if hasattr(st.session_state, 'chat_messages') and len(st.session_state.chat_messages) > 1:
-            recent_messages = st.session_state.chat_messages[-4:]
-            context_parts = []
-            
-            for msg in recent_messages:
-                if msg['role'] == 'user':
-                    context_parts.append(f"User: {msg['content']}")
-                elif msg['role'] == 'assistant' and len(msg['content']) < 200:
-                    context_parts.append(f"Assistant: {msg['content']}")
-            
-            if context_parts:
-                conversation_context = "\n".join(context_parts)
+        # Get or initialize session
+        session = initialize_session()
         
-        # Enhanced query with context and counting analysis
-        enhanced_query = analyzed_query
-        if conversation_context:
-            enhanced_query = f"""CONVERSATION CONTEXT:
-{conversation_context}
-
-{analyzed_query}
-
-Use context appropriately for follow-up questions."""
-        
-        # Streaming response with gpt-4.1
+        # Streaming response with gpt-4.1 and session context
         response_container = st.empty()
         full_response = ""
         
-        # Run agent with streaming
-        result = Runner.run_streamed(main_agent, input=enhanced_query)
+        # Run agent with streaming and session (automatic conversation context)
+        result = Runner.run_streamed(main_agent, input=analyzed_query, session=session)
         async for event in result.stream_events():
             if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
                 full_response += event.data.delta
@@ -1026,6 +1040,7 @@ def render_ai_chat():
     
     # Initialize services
     geocode_service = initialize_geocode_service()
+    session = initialize_session()  # Initialize session for conversation persistence
     main_agent = initialize_main_agent()
     
     if not main_agent:
@@ -1041,12 +1056,14 @@ def render_ai_chat():
     # Initialize chat history
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
-        welcome_msg = """Halo! Saya RHR AI Agent dengan Enhanced Smart Counting System!
+        session_info = get_session_info()
+        welcome_msg = f"""Halo! Saya RHR AI Agent dengan Enhanced Smart Counting System!
 
 **Kemampuan Saya:**
 - 💬 **Percakapan Natural**: Saya berbicara dalam bahasa yang anda gunakan!
 - 📊 **Analisis Data Cerdas**: "Berapa proyek di Jakarta?" ,"Siapa client terbesar?"
 - 🎯 **Smart Counting**: Otomatis mendeteksi proyek vs objek untuk counting yang akurat
+- 💾 **Session Persistence**: Percakapan tersimpan otomatis dan ingat konteks sebelumnya
 - 🗺️ **Visualisasi Peta**: "Buatkan peta semua proyek di Bali"
 - 📈 **Grafik & Chart**: "Grafik pemberi tugas per cabang"
 - 📍 **Pencarian Lokasi**: "Proyek terdekat dari Mall Taman Anggrek radius 1km"
@@ -1054,6 +1071,8 @@ def render_ai_chat():
 
 **Kata Kunci Project (COUNT DISTINCT):** penugasan, proyek, pekerjaan, penilaian, kajian, kontrak, proposal
 **Kata Kunci Object (COUNT ALL):** objek, bangunan, tanah, aset, lokasi, properti
+
+**Session ID:** {session_info.get('session_id', 'Loading...')}
 
 Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
         
@@ -1272,9 +1291,38 @@ def main():
     # Smart counting status
     st.sidebar.success("🎯 Smart Counting: Enabled")
     
+    # Session status
+    session_info = get_session_info()
+    if session_info["active"]:
+        st.sidebar.success("💾 Session: Active")
+        st.sidebar.caption(f"ID: {session_info['session_id']}")
+    else:
+        st.sidebar.warning("💾 Session: Inactive")
+    
     # Chat status
     if hasattr(st.session_state, 'chat_messages'):
         st.sidebar.info(f"💬 Messages: {len(st.session_state.chat_messages)}")
+    
+    # Session management
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**💾 Session Management**")
+    
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        if st.button("🔄 New Session", help="Start a new conversation session"):
+            if clear_session():
+                st.success("New session started!")
+                st.rerun()
+    
+    with col2:
+        if st.button("📊 Session Info", help="Show session information"):
+            st.sidebar.markdown("**Current Session:**")
+            if session_info["active"]:
+                st.sidebar.text(f"ID: {session_info['session_id']}")
+                st.sidebar.text("Status: Active")
+                st.sidebar.text("DB: rhr_conversations.db")
+            else:
+                st.sidebar.text("No active session")
 
 
 if __name__ == "__main__":
