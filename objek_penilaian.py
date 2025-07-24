@@ -1049,7 +1049,7 @@ def render_ai_chat():
     # Agent status display
     st.markdown("""
     <div class="agent-status">
-        🤖 KJPP RHR FIRST AI AGENT - Enhanced Smart Counting System
+        🤖 KJPP RHR FIRST AI AGENT
     </div>
     """, unsafe_allow_html=True)
     
@@ -1057,7 +1057,7 @@ def render_ai_chat():
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
         session_info = get_session_info()
-        welcome_msg = f"""Halo! Saya RHR AI Agent dengan Enhanced Smart Counting System!
+        welcome_msg = f"""Halo! Saya RHR AI Agent
 
 **Kemampuan Saya:**
 - 💬 **Percakapan Natural**: Saya berbicara dalam bahasa yang anda gunakan!
@@ -1223,7 +1223,7 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
         if st.button("💾 Export Chat", use_container_width=True):
             chat_export = {
                 "timestamp": datetime.now().isoformat(),
-                "agent_model": "gpt-4.1-enhanced",
+                "agent_model": "gpt-4.1",
                 "smart_counting_enabled": True,
                 "chat_messages": st.session_state.chat_messages
             }
@@ -1231,7 +1231,7 @@ Apa yang ingin Anda ketahui tentang proyek properti RHR hari ini?"""
             st.download_button(
                 label="Download",
                 data=json.dumps(chat_export, indent=2, ensure_ascii=False),
-                file_name=f"rhr_enhanced_chat_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                file_name=f"rhr_chat_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
                 mime="application/json",
                 use_container_width=True
             )
@@ -1249,11 +1249,8 @@ def main():
     st.markdown('<h1 class="main-header">🚀 RHR AI Agent</h1>', unsafe_allow_html=True)
     
     # Sidebar navigation
-    st.sidebar.title("🤖 RHR AI Agent Enhanced")
+    st.sidebar.title("🤖 RHR AI Agent")
     st.sidebar.success(f"Logged in as: {st.secrets['auth']['username']}")
-    
-    # Enhanced version info
-    st.sidebar.info("✨ **Enhanced Smart Counting System**\n- Auto-detects project vs object queries\n- Prevents counting hallucination\n- Improved accuracy")
     
     if st.sidebar.button("Logout"):
         st.session_state.authenticated = False
