@@ -11,7 +11,7 @@ import requests
 import math
 import asyncio
 import re
-from agents import Agent, function_tool, Runner, set_default_openai_key, SQLiteSession
+from agents import Agent, function_tool, Runner, set_default_openai_key, SQLiteSession, WebSearchTool
 from openai.types.responses import ResponseTextDeltaEvent
 
 warnings.filterwarnings('ignore')
@@ -163,7 +163,6 @@ class GeocodeService:
             st.error(f"Geocoding error: {str(e)}")
             return None, None, None
 
-# Core Agent Tools
 @function_tool
 def execute_sql_query(sql_query: str) -> str:
     """Execute SQL query and return formatted results"""
@@ -806,6 +805,13 @@ Project Status & Timeline
 2. create_map_visualization(sql, title) - Auto-map for coordinates  
 3. create_chart_visualization(type, sql, title, x, y) - Charts for trends
 4. find_nearby_projects(location, radius) - Geocoded proximity search
+5. web_search - Search the web for external information
+
+**WEB SEARCH CAPABILITY:**
+- When users express uncertainty or want to "coba cari tau" (try to find out)
+- When questions go beyond the RHR database scope
+- For general property market trends, regulations, or industry insights
+- Use web_search for external information, then relate back to RHR data when possible
 
 **RESPONSE PROCESS:** 
 1. Analyze query type (project vs object count)
@@ -823,7 +829,8 @@ Project Status & Timeline
             execute_sql_query,
             create_map_visualization, 
             create_chart_visualization,
-            find_nearby_projects
+            find_nearby_projects,
+            WebSearchTool(search_context_size="medium")
         ]
     )
     
