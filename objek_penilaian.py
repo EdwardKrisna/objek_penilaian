@@ -1074,6 +1074,7 @@ def render_ai_chat():
 - 🗺️ **Visualisasi Peta**: "Buatkan peta semua proyek di Bali"
 - 📈 **Grafik & Chart**: "Grafik pemberi tugas per cabang"
 - 📍 **Pencarian Lokasi**: "Proyek terdekat dari Mall Taman Anggrek radius 1km"
+- 🌐 **Web Search**
 - 🔄 **Follow-up Kontekstual**: "Yang pertama" • "Detail yang di Jakarta Selatan"
 
 **Kata Kunci Project (COUNT DISTINCT):** penugasan, proyek, pekerjaan, penilaian, kajian, kontrak, proposal
