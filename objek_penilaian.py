@@ -11,7 +11,8 @@ import requests
 import math
 import asyncio
 import re
-from agents import Agent, function_tool, Runner, set_default_openai_key, SQLiteSession, WebSearchTool
+from agents import Agent, function_tool, Runner, set_default_openai_key, WebSearchTool
+from agents import SQLiteSession
 from openai.types.responses import ResponseTextDeltaEvent
 
 warnings.filterwarnings('ignore')
